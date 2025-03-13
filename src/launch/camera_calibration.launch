@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<launch>
+  <!-- Argumen untuk mode kalibrasi -->
+  <arg name="mode" default="calibration"/>
+  
+  <!-- Argumen untuk mengaktifkan/menonaktifkan kalibrasi intrinsik dan ekstrinsik -->
+  <arg name="intrinsic" default="true"/>
+  <arg name="extrinsic" default="true"/>
+  
+  <!-- Kalibrasi Intrinsik Kamera -->
+  <group if="$(arg intrinsic)">
+    <!-- Ambil definisi dari launch file intrinsic_camera_calibration.launch -->
+    <include file="$(find turtlebot3_autorace_camera)/launch/intrinsic_camera_calibration.launch"/>
+  </group>
+  
+  <!-- Kalibrasi Ekstrinsik Kamera -->
+  <group if="$(arg extrinsic)">
+    <!-- Ambil definisi dari launch file extrinsic_camera_calibration.launch -->
+    <include file="$(find turtlebot3_autorace_camera)/launch/extrinsic_camera_calibration.launch">
+      <arg name="mode" value="$(arg mode)"/>
+    </include>
+  </group>
+</launch>
