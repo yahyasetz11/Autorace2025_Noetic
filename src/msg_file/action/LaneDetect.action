@@ -1,0 +1,10 @@
+# Goal
+float32 detect_duration  # Duration in seconds to run detection
+---
+# Result
+bool lane_detected
+float32 detection_confidence
+---
+# Feedback
+float32 time_elapsed
+float32 time_remaining
