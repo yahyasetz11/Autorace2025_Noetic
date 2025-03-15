@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>behaviortree</name>
+  <version>0.0.0</version>
+  <description>The behaviortree package</description>
+  <maintainer email="yahyasetz@gmail.com">user</maintainer>
+  <license>TODO</license>
+  <buildtool_depend>catkin</buildtool_depend>
+  <build_depend>roscpp</build_depend>
+  <build_depend>actionlib</build_depend>
+  <build_depend>msg_file</build_depend>
+  <build_depend>behaviortree_cpp_v3</build_depend>
+  <exec_depend>roscpp</exec_depend>
+  <exec_depend>actionlib</exec_depend>
+  <exec_depend>msg_file</exec_depend>
+  <exec_depend>behaviortree_cpp_v3</exec_depend>
+</package>
