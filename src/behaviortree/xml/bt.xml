@@ -1,7 +1,10 @@
 <root main_tree_to_execute="LaneDetectBT">
     <BehaviorTree ID="LaneDetectBT">
         <Sequence name="root_sequence">
-            <LaneDetect duration="15.0"/>
+            <!-- <LaneDetect mode="center" duration="40"/>  Time-based center mode -->
+            <LaneDetect mode="center" sign="intersection"/>    <!-- Sign-based center mode -->
+            <LaneDetect mode="intersection" duration="60.0" sign=""/>    <!-- Time-based left mode that also succeeds if both lanes are detected -->
+            <LaneDetect mode="center" sign="construction"/>
         </Sequence>
     </BehaviorTree>
 </root>

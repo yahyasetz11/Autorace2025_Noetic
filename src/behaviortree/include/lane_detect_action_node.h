@@ -13,51 +13,73 @@ public:
       : BT::SyncActionNode(name, config),
         client_("lane_detect", true)
   {
-    // Tunggu action server mulai
-    ROS_INFO("Menunggu lane_detect action server...");
+    // Wait for the action server to start
+    ROS_INFO("Waiting for lane_detect action server...");
     client_.waitForServer();
-    ROS_INFO("Lane detect action server terhubung!");
+    ROS_INFO("Lane detect action server connected!");
   }
 
   static BT::PortsList providedPorts()
   {
-    return {BT::InputPort<float>("duration")};
+    return {
+        BT::InputPort<float>("duration", 0.0, "Duration in seconds (0 for infinite)"),
+        BT::InputPort<std::string>("mode", "center", "Lane following mode: center, left, or right"),
+        BT::InputPort<std::string>("sign", "", "Sign to wait for (empty if using duration)")};
   }
 
   BT::NodeStatus tick() override
   {
-    float duration;
-    if (!getInput("duration", duration))
-    {
-      ROS_ERROR("Missing required input [duration]");
-      return BT::NodeStatus::FAILURE;
-    }
+    // Get input parameters
+    float duration = 0.0;
+    std::string mode = "center";
+    std::string sign = "";
 
+    getInput("duration", duration);
+    getInput("mode", mode);
+    getInput("sign", sign);
+
+    // Create and send the goal
     msg_file::LaneDetectGoal goal;
     goal.duration = duration;
+    goal.mode = mode;
+    goal.sign = sign;
 
-    ROS_INFO("Mengirim goal dengan durasi: %f", duration);
+    ROS_INFO("Sending goal - Mode: %s, Duration: %.1f, Sign: %s",
+             mode.c_str(), duration, sign.empty() ? "none" : sign.c_str());
+
     client_.sendGoal(goal);
 
-    // Tunggu action selesai
-    bool finished_before_timeout = client_.waitForResult(ros::Duration(duration + 1.0));
+    // Wait for action to complete
+    // If sign-based or both-lanes based, we need a longer timeout
+    float timeout = duration;
+    if (duration <= 0 || !sign.empty())
+    {
+      timeout = 300.0; // 5 minutes timeout for sign-based detection
+    }
+    else
+    {
+      timeout += 1.0; // Add buffer for duration-based detection
+    }
+
+    bool finished_before_timeout = client_.waitForResult(ros::Duration(timeout));
 
     if (finished_before_timeout)
     {
       if (client_.getState() == actionlib::SimpleClientGoalState::SUCCEEDED)
       {
-        ROS_INFO("Lane detection berhasil");
+        ROS_INFO("Lane detection succeeded");
         return BT::NodeStatus::SUCCESS;
       }
       else
       {
-        ROS_INFO("Lane detection gagal dengan state: %s", client_.getState().toString().c_str());
+        ROS_INFO("Lane detection failed with state: %s", client_.getState().toString().c_str());
         return BT::NodeStatus::FAILURE;
       }
     }
     else
     {
       ROS_INFO("Lane detection timeout");
+      client_.cancelGoal();
       return BT::NodeStatus::FAILURE;
     }
   }

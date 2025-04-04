@@ -1,8 +1,10 @@
 # Goal
-float32 duration   # Durasi dalam detik
+float32 duration   # Duration in seconds (0 for infinite)
+string mode        # Lane following mode: "center", "left", or "right"
+string sign        # Sign to wait for (empty if using duration)
 ---
 # Result
-bool success       # Apakah deteksi lane berhasil
+bool success       # Whether lane detection succeeded
 ---
 # Feedback
-float32 time_elapsed  # Waktu yang telah berlalu
+float32 time_elapsed  # Time elapsed
