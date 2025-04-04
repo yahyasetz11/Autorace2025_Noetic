@@ -7,7 +7,9 @@
 #include <sensor_msgs/Image.h>
 #include <geometry_msgs/Twist.h>
 #include <msg_file/Detection.h>
-#include <cmath> // For math functions
+#include <cmath>           // For math functions
+#include <yaml-cpp/yaml.h> // YAML parser
+#include <ros/package.h>   // For package path resolution
 
 class LaneDetectServer
 {
@@ -46,21 +48,182 @@ private:
     bool previous_both_lanes_;       // Previous state of both lanes detection
     ros::Time last_transition_time_; // Time of last lane detection state change
 
-    // Lane detection parameters
-    int hue_white_l = 0, hue_white_h = 179;
-    int saturation_white_l = 0, saturation_white_h = 70;
-    int value_white_l = 165, value_white_h = 255;
-    int hue_yellow_l = 10, hue_yellow_h = 50;
-    int saturation_yellow_l = 100, saturation_yellow_h = 255;
-    int value_yellow_l = 100, value_yellow_h = 255;
+    // Lane detection parameters - now loaded from YAML file
+    int hue_white_l, hue_white_h;
+    int saturation_white_l, saturation_white_h;
+    int value_white_l, value_white_h;
+    int hue_yellow_l, hue_yellow_h;
+    int saturation_yellow_l, saturation_yellow_h;
+    int value_yellow_l, value_yellow_h;
+    double roi_height_factor;
 
-    // Navigation parameters
-    double max_linear_speed = 0.08;    // m/s
-    double max_angular_speed = 1.5;    // rad/s
-    double steering_sensitivity = 5.0; // steering gain
-    double non_linear_factor = 1.5;    // non-linear factor
+    // Navigation parameters - now loaded from YAML file
+    double max_linear_speed;       // m/s
+    double max_angular_speed;      // rad/s
+    double steering_sensitivity;   // steering gain
+    double non_linear_factor;      // non-linear factor
+    double min_linear_speed;       // minimum linear speed
+    double speed_reduction_factor; // factor to reduce speed when turning
 
 public:
+    // Method to load parameters directly from YAML files
+    void loadYAMLParameters()
+    {
+        try
+        {
+            // Get the package path to locate config files
+            std::string package_path = ros::package::getPath("action_bt");
+            std::string speed_config_path = package_path + "/../config/speed_conf.yaml";
+            std::string color_config_path = package_path + "/../config/color_lane.yaml";
+
+            ROS_INFO("Loading speed configuration from: %s", speed_config_path.c_str());
+            ROS_INFO("Loading color configuration from: %s", color_config_path.c_str());
+
+            // Load speed configuration
+            YAML::Node speed_config = YAML::LoadFile(speed_config_path);
+
+            // Extract speed parameters with defaults if not found
+            max_linear_speed = speed_config["max_linear_speed"] ? speed_config["max_linear_speed"].as<double>() : 0.08;
+
+            max_angular_speed = speed_config["max_angular_speed"] ? speed_config["max_angular_speed"].as<double>() : 1.5;
+
+            steering_sensitivity = speed_config["steering_sensitivity"] ? speed_config["steering_sensitivity"].as<double>() : 5.0;
+
+            non_linear_factor = speed_config["non_linear_factor"] ? speed_config["non_linear_factor"].as<double>() : 1.5;
+
+            min_linear_speed = speed_config["min_linear_speed"] ? speed_config["min_linear_speed"].as<double>() : 0.05;
+
+            speed_reduction_factor = speed_config["speed_reduction_factor"] ? speed_config["speed_reduction_factor"].as<double>() : 0.7;
+
+            // Load color configuration
+            YAML::Node color_config = YAML::LoadFile(color_config_path);
+
+            // Extract white lane parameters
+            if (color_config["white_lane"])
+            {
+                YAML::Node white = color_config["white_lane"];
+
+                if (white["hue"])
+                {
+                    hue_white_l = white["hue"]["low"] ? white["hue"]["low"].as<int>() : 0;
+                    hue_white_h = white["hue"]["high"] ? white["hue"]["high"].as<int>() : 179;
+                }
+
+                if (white["saturation"])
+                {
+                    saturation_white_l = white["saturation"]["low"] ? white["saturation"]["low"].as<int>() : 0;
+                    saturation_white_h = white["saturation"]["high"] ? white["saturation"]["high"].as<int>() : 70;
+                }
+
+                if (white["value"])
+                {
+                    value_white_l = white["value"]["low"] ? white["value"]["low"].as<int>() : 165;
+                    value_white_h = white["value"]["high"] ? white["value"]["high"].as<int>() : 255;
+                }
+            }
+            else
+            {
+                // Default values if not found
+                hue_white_l = 0;
+                hue_white_h = 179;
+                saturation_white_l = 0;
+                saturation_white_h = 70;
+                value_white_l = 165;
+                value_white_h = 255;
+            }
+
+            // Extract yellow lane parameters
+            if (color_config["yellow_lane"])
+            {
+                YAML::Node yellow = color_config["yellow_lane"];
+
+                if (yellow["hue"])
+                {
+                    hue_yellow_l = yellow["hue"]["low"] ? yellow["hue"]["low"].as<int>() : 10;
+                    hue_yellow_h = yellow["hue"]["high"] ? yellow["hue"]["high"].as<int>() : 50;
+                }
+
+                if (yellow["saturation"])
+                {
+                    saturation_yellow_l = yellow["saturation"]["low"] ? yellow["saturation"]["low"].as<int>() : 100;
+                    saturation_yellow_h = yellow["saturation"]["high"] ? yellow["saturation"]["high"].as<int>() : 255;
+                }
+
+                if (yellow["value"])
+                {
+                    value_yellow_l = yellow["value"]["low"] ? yellow["value"]["low"].as<int>() : 100;
+                    value_yellow_h = yellow["value"]["high"] ? yellow["value"]["high"].as<int>() : 255;
+                }
+            }
+            else
+            {
+                // Default values if not found
+                hue_yellow_l = 10;
+                hue_yellow_h = 50;
+                saturation_yellow_l = 100;
+                saturation_yellow_h = 255;
+                value_yellow_l = 100;
+                value_yellow_h = 255;
+            }
+
+            // Extract ROI parameters
+            if (color_config["roi"] && color_config["roi"]["height_factor"])
+            {
+                roi_height_factor = color_config["roi"]["height_factor"].as<double>();
+            }
+            else
+            {
+                roi_height_factor = 0.5;
+            }
+
+            // Print loaded parameters for debugging
+            ROS_INFO("Speed parameters loaded from YAML:");
+            ROS_INFO("  max_linear_speed: %.2f m/s", max_linear_speed);
+            ROS_INFO("  max_angular_speed: %.2f rad/s", max_angular_speed);
+            ROS_INFO("  steering_sensitivity: %.2f", steering_sensitivity);
+            ROS_INFO("  non_linear_factor: %.2f", non_linear_factor);
+
+            ROS_INFO("Color parameters loaded from YAML:");
+            ROS_INFO("  White lane HSV: H(%d-%d) S(%d-%d) V(%d-%d)",
+                     hue_white_l, hue_white_h,
+                     saturation_white_l, saturation_white_h,
+                     value_white_l, value_white_h);
+            ROS_INFO("  Yellow lane HSV: H(%d-%d) S(%d-%d) V(%d-%d)",
+                     hue_yellow_l, hue_yellow_h,
+                     saturation_yellow_l, saturation_yellow_h,
+                     value_yellow_l, value_yellow_h);
+        }
+        catch (const YAML::Exception &e)
+        {
+            ROS_ERROR("Error loading YAML files: %s", e.what());
+            ROS_WARN("Using default values instead");
+
+            // Set default values
+            max_linear_speed = 0.08;
+            max_angular_speed = 1.5;
+            steering_sensitivity = 5.0;
+            non_linear_factor = 1.5;
+            min_linear_speed = 0.05;
+            speed_reduction_factor = 0.7;
+
+            hue_white_l = 0;
+            hue_white_h = 179;
+            saturation_white_l = 0;
+            saturation_white_h = 70;
+            value_white_l = 165;
+            value_white_h = 255;
+
+            hue_yellow_l = 10;
+            hue_yellow_h = 50;
+            saturation_yellow_l = 100;
+            saturation_yellow_h = 255;
+            value_yellow_l = 100;
+            value_yellow_h = 255;
+
+            roi_height_factor = 0.5;
+        }
+    }
+
     LaneDetectServer(std::string name) : as_(nh_, name, boost::bind(&LaneDetectServer::executeCB, this, _1), false),
                                          action_name_(name),
                                          it_(nh_),
@@ -74,12 +237,11 @@ public:
                                          intersection_flag_(0),
                                          previous_both_lanes_(false)
     {
-        // Get parameters from the ROS parameter server
+        // Get camera topic from the ROS parameter server
         nh_.param<std::string>("camera_topic", camera_topic_, "/camera/image_projected_compensated");
-        nh_.param<double>("max_linear_speed", max_linear_speed, 0.08);
-        nh_.param<double>("max_angular_speed", max_angular_speed, 1.5);
-        nh_.param<double>("steering_sensitivity", steering_sensitivity, 5.0);
-        nh_.param<double>("non_linear_factor", non_linear_factor, 1.5);
+
+        // Load parameters directly from YAML files
+        loadYAMLParameters();
 
         // Publishers
         cmd_vel_pub_ = nh_.advertise<geometry_msgs::Twist>("/cmd_vel", 10);
@@ -93,22 +255,6 @@ public:
 
         as_.start();
         ROS_INFO("Lane Detection Action Server Started");
-
-        // Display navigation parameters
-        ROS_INFO("Navigation parameters:");
-        ROS_INFO("  max_linear_speed: %.2f m/s", max_linear_speed);
-        ROS_INFO("  max_angular_speed: %.2f rad/s", max_angular_speed);
-        ROS_INFO("  steering_sensitivity: %.2f", steering_sensitivity);
-        ROS_INFO("  non_linear_factor: %.2f", non_linear_factor);
-    }
-
-    ~LaneDetectServer()
-    {
-        // Ensure the robot stops when the server shuts down
-        geometry_msgs::Twist cmd;
-        cmd.linear.x = 0.0;
-        cmd.angular.z = 0.0;
-        cmd_vel_pub_.publish(cmd);
     }
 
     void imageCallback(const sensor_msgs::ImageConstPtr &msg)
@@ -197,11 +343,14 @@ public:
 
         cv::Mat roi_mask = cv::Mat::zeros(height, width, CV_8UC1);
 
+        // Using roi_height_factor from config to determine ROI area
+        int roi_height = static_cast<int>(height * roi_height_factor);
+
         std::vector<cv::Point> roi_points;
         roi_points.push_back(cv::Point(0, height));
         roi_points.push_back(cv::Point(width, height));
-        roi_points.push_back(cv::Point(width, height / 2));
-        roi_points.push_back(cv::Point(0, height / 2));
+        roi_points.push_back(cv::Point(width, roi_height));
+        roi_points.push_back(cv::Point(0, roi_height));
 
         cv::fillConvexPoly(roi_mask, roi_points, cv::Scalar(255, 0, 0));
         cv::bitwise_and(img_masked_, roi_mask, img_masked_);
@@ -491,8 +640,12 @@ public:
         }
 
         // Adaptive calculation for linear speed based on steering
-        // Reduce speed when turning sharply
-        double linear_x = max_linear_speed * (1.0 - 0.7 * fabs(angular_z / max_angular_speed));
+        // Reduce speed when turning sharply using speed_reduction_factor from config
+        double linear_x = max_linear_speed * (1.0 - speed_reduction_factor * fabs(angular_z / max_angular_speed));
+
+        // Ensure minimum speed is maintained
+        if (linear_x < min_linear_speed)
+            linear_x = min_linear_speed;
 
         // Create and send movement command
         geometry_msgs::Twist cmd;
