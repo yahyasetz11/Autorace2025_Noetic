@@ -2,9 +2,12 @@
     <BehaviorTree ID="LaneDetectBT">
         <Sequence name="root_sequence">
             <!-- <LaneDetect mode="center" duration="40"/>  Time-based center mode -->
-            <LaneDetect mode="center" sign="intersection"/>    <!-- Sign-based center mode -->
-            <LaneDetect mode="intersection" duration="60.0" sign=""/>    <!-- Time-based left mode that also succeeds if both lanes are detected -->
-            <LaneDetect mode="center" sign="construction"/>
+            <LaneDetect mode="center" sign="intersection"/>    <!-- Sign-based center mode (succeed after see turn left/right "intersection" sign)-->
+            <LaneDetect mode="intersection" duration="60.0" sign=""/>    <!-- Turn right/left depend on camera, (succeed after crossing two intersect or after 60s) -->
+            <LaneDetect mode="center" sign="construction"/> <!-- Sign-based center mode (succeed after see construction sign)-->
+            <LaneDetect mode="just-turn-left" duration="60.0" sign="right"/>   <!-- Turn left (succeed after 90 degree) but following right lane -->
+            <!-- <LaneDetect mode="left" duration="60.0" sign="left"/> --> <!-- Turn left (succeed after crossing one intersect or after 60s) -->
+            <!--<LaneDetect mode="right" duration="60.0" sign="right"/> --> <!-- Turn right (succeed after crossing one intersect or after 60s) -->
         </Sequence>
     </BehaviorTree>
 </root>

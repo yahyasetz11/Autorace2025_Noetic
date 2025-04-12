@@ -7,9 +7,9 @@
 #include <sensor_msgs/Image.h>
 #include <geometry_msgs/Twist.h>
 #include <msg_file/Detection.h>
-#include <cmath>           // For math functions
-#include <yaml-cpp/yaml.h> // YAML parser
-#include <ros/package.h>   // For package path resolution
+#include <cmath>                    // For math functions
+#include <nav_msgs/Odometry.h>      // For odometry data
+#include <tf/transform_datatypes.h> // For quaternion to Euler conversion
 
 class LaneDetectServer
 {
@@ -23,6 +23,7 @@ private:
     // ROS communication
     ros::Publisher cmd_vel_pub_;
     ros::Subscriber detection_sub_;
+    ros::Subscriber odom_sub_; // Added for odometry data
     image_transport::ImageTransport it_;
     image_transport::Subscriber image_sub_;
 
@@ -35,7 +36,7 @@ private:
     std::string camera_topic_;
 
     // New variables for improved lane detection
-    std::string current_mode_;        // Current operation mode: "center", "left", "right", "intersection"
+    std::string current_mode_;        // Current operation mode: "center", "left", "right", "intersection", "just-turn-left", "just-turn-right"
     std::string target_sign_;         // Sign to wait for
     bool sign_detected_;              // Flag for sign detection
     std::string last_detected_sign_;  // Last detected sign (for intersection mode)
@@ -43,187 +44,32 @@ private:
     double x_previous_;               // Stored distance from lane to center
     bool both_lanes_detected_;        // Flag for detecting both lanes
 
+    // Yaw tracking for turn modes
+    double initial_yaw_;   // Initial yaw angle when turn started
+    double current_yaw_;   // Current yaw angle
+    bool is_turn_mode_;    // Whether we're in a turning mode
+    bool yaw_initialized_; // Whether initial yaw has been set
+
     // Intersection detection variables
     int intersection_flag_;          // Counter for intersection detection
     bool previous_both_lanes_;       // Previous state of both lanes detection
     ros::Time last_transition_time_; // Time of last lane detection state change
 
-    // Lane detection parameters - now loaded from YAML file
-    int hue_white_l, hue_white_h;
-    int saturation_white_l, saturation_white_h;
-    int value_white_l, value_white_h;
-    int hue_yellow_l, hue_yellow_h;
-    int saturation_yellow_l, saturation_yellow_h;
-    int value_yellow_l, value_yellow_h;
-    double roi_height_factor;
+    // Lane detection parameters
+    int hue_white_l = 0, hue_white_h = 179;
+    int saturation_white_l = 0, saturation_white_h = 70;
+    int value_white_l = 165, value_white_h = 255;
+    int hue_yellow_l = 10, hue_yellow_h = 50;
+    int saturation_yellow_l = 100, saturation_yellow_h = 255;
+    int value_yellow_l = 100, value_yellow_h = 255;
 
-    // Navigation parameters - now loaded from YAML file
-    double max_linear_speed;       // m/s
-    double max_angular_speed;      // rad/s
-    double steering_sensitivity;   // steering gain
-    double non_linear_factor;      // non-linear factor
-    double min_linear_speed;       // minimum linear speed
-    double speed_reduction_factor; // factor to reduce speed when turning
+    // Navigation parameters
+    double max_linear_speed = 0.08;    // m/s
+    double max_angular_speed = 1.5;    // rad/s
+    double steering_sensitivity = 5.0; // steering gain
+    double non_linear_factor = 1.5;    // non-linear factor
 
 public:
-    // Method to load parameters directly from YAML files
-    void loadYAMLParameters()
-    {
-        try
-        {
-            // Get the package path to locate config files
-            std::string package_path = ros::package::getPath("action_bt");
-            std::string speed_config_path = package_path + "/../config/speed_conf.yaml";
-            std::string color_config_path = package_path + "/../config/color_lane.yaml";
-
-            ROS_INFO("Loading speed configuration from: %s", speed_config_path.c_str());
-            ROS_INFO("Loading color configuration from: %s", color_config_path.c_str());
-
-            // Load speed configuration
-            YAML::Node speed_config = YAML::LoadFile(speed_config_path);
-
-            // Extract speed parameters with defaults if not found
-            max_linear_speed = speed_config["max_linear_speed"] ? speed_config["max_linear_speed"].as<double>() : 0.08;
-
-            max_angular_speed = speed_config["max_angular_speed"] ? speed_config["max_angular_speed"].as<double>() : 1.5;
-
-            steering_sensitivity = speed_config["steering_sensitivity"] ? speed_config["steering_sensitivity"].as<double>() : 5.0;
-
-            non_linear_factor = speed_config["non_linear_factor"] ? speed_config["non_linear_factor"].as<double>() : 1.5;
-
-            min_linear_speed = speed_config["min_linear_speed"] ? speed_config["min_linear_speed"].as<double>() : 0.05;
-
-            speed_reduction_factor = speed_config["speed_reduction_factor"] ? speed_config["speed_reduction_factor"].as<double>() : 0.7;
-
-            // Load color configuration
-            YAML::Node color_config = YAML::LoadFile(color_config_path);
-
-            // Extract white lane parameters
-            if (color_config["white_lane"])
-            {
-                YAML::Node white = color_config["white_lane"];
-
-                if (white["hue"])
-                {
-                    hue_white_l = white["hue"]["low"] ? white["hue"]["low"].as<int>() : 0;
-                    hue_white_h = white["hue"]["high"] ? white["hue"]["high"].as<int>() : 179;
-                }
-
-                if (white["saturation"])
-                {
-                    saturation_white_l = white["saturation"]["low"] ? white["saturation"]["low"].as<int>() : 0;
-                    saturation_white_h = white["saturation"]["high"] ? white["saturation"]["high"].as<int>() : 70;
-                }
-
-                if (white["value"])
-                {
-                    value_white_l = white["value"]["low"] ? white["value"]["low"].as<int>() : 165;
-                    value_white_h = white["value"]["high"] ? white["value"]["high"].as<int>() : 255;
-                }
-            }
-            else
-            {
-                // Default values if not found
-                hue_white_l = 0;
-                hue_white_h = 179;
-                saturation_white_l = 0;
-                saturation_white_h = 70;
-                value_white_l = 165;
-                value_white_h = 255;
-            }
-
-            // Extract yellow lane parameters
-            if (color_config["yellow_lane"])
-            {
-                YAML::Node yellow = color_config["yellow_lane"];
-
-                if (yellow["hue"])
-                {
-                    hue_yellow_l = yellow["hue"]["low"] ? yellow["hue"]["low"].as<int>() : 10;
-                    hue_yellow_h = yellow["hue"]["high"] ? yellow["hue"]["high"].as<int>() : 50;
-                }
-
-                if (yellow["saturation"])
-                {
-                    saturation_yellow_l = yellow["saturation"]["low"] ? yellow["saturation"]["low"].as<int>() : 100;
-                    saturation_yellow_h = yellow["saturation"]["high"] ? yellow["saturation"]["high"].as<int>() : 255;
-                }
-
-                if (yellow["value"])
-                {
-                    value_yellow_l = yellow["value"]["low"] ? yellow["value"]["low"].as<int>() : 100;
-                    value_yellow_h = yellow["value"]["high"] ? yellow["value"]["high"].as<int>() : 255;
-                }
-            }
-            else
-            {
-                // Default values if not found
-                hue_yellow_l = 10;
-                hue_yellow_h = 50;
-                saturation_yellow_l = 100;
-                saturation_yellow_h = 255;
-                value_yellow_l = 100;
-                value_yellow_h = 255;
-            }
-
-            // Extract ROI parameters
-            if (color_config["roi"] && color_config["roi"]["height_factor"])
-            {
-                roi_height_factor = color_config["roi"]["height_factor"].as<double>();
-            }
-            else
-            {
-                roi_height_factor = 0.5;
-            }
-
-            // Print loaded parameters for debugging
-            ROS_INFO("Speed parameters loaded from YAML:");
-            ROS_INFO("  max_linear_speed: %.2f m/s", max_linear_speed);
-            ROS_INFO("  max_angular_speed: %.2f rad/s", max_angular_speed);
-            ROS_INFO("  steering_sensitivity: %.2f", steering_sensitivity);
-            ROS_INFO("  non_linear_factor: %.2f", non_linear_factor);
-
-            ROS_INFO("Color parameters loaded from YAML:");
-            ROS_INFO("  White lane HSV: H(%d-%d) S(%d-%d) V(%d-%d)",
-                     hue_white_l, hue_white_h,
-                     saturation_white_l, saturation_white_h,
-                     value_white_l, value_white_h);
-            ROS_INFO("  Yellow lane HSV: H(%d-%d) S(%d-%d) V(%d-%d)",
-                     hue_yellow_l, hue_yellow_h,
-                     saturation_yellow_l, saturation_yellow_h,
-                     value_yellow_l, value_yellow_h);
-        }
-        catch (const YAML::Exception &e)
-        {
-            ROS_ERROR("Error loading YAML files: %s", e.what());
-            ROS_WARN("Using default values instead");
-
-            // Set default values
-            max_linear_speed = 0.08;
-            max_angular_speed = 1.5;
-            steering_sensitivity = 5.0;
-            non_linear_factor = 1.5;
-            min_linear_speed = 0.05;
-            speed_reduction_factor = 0.7;
-
-            hue_white_l = 0;
-            hue_white_h = 179;
-            saturation_white_l = 0;
-            saturation_white_h = 70;
-            value_white_l = 165;
-            value_white_h = 255;
-
-            hue_yellow_l = 10;
-            hue_yellow_h = 50;
-            saturation_yellow_l = 100;
-            saturation_yellow_h = 255;
-            value_yellow_l = 100;
-            value_yellow_h = 255;
-
-            roi_height_factor = 0.5;
-        }
-    }
-
     LaneDetectServer(std::string name) : as_(nh_, name, boost::bind(&LaneDetectServer::executeCB, this, _1), false),
                                          action_name_(name),
                                          it_(nh_),
@@ -235,13 +81,18 @@ public:
                                          both_lanes_detected_(false),
                                          x_previous_(0.0),
                                          intersection_flag_(0),
-                                         previous_both_lanes_(false)
+                                         previous_both_lanes_(false),
+                                         initial_yaw_(0.0),
+                                         current_yaw_(0.0),
+                                         is_turn_mode_(false),
+                                         yaw_initialized_(false)
     {
-        // Get camera topic from the ROS parameter server
+        // Get parameters from the ROS parameter server
         nh_.param<std::string>("camera_topic", camera_topic_, "/camera/image_projected_compensated");
-
-        // Load parameters directly from YAML files
-        loadYAMLParameters();
+        nh_.param<double>("max_linear_speed", max_linear_speed, 0.08);
+        nh_.param<double>("max_angular_speed", max_angular_speed, 1.5);
+        nh_.param<double>("steering_sensitivity", steering_sensitivity, 5.0);
+        nh_.param<double>("non_linear_factor", non_linear_factor, 1.5);
 
         // Publishers
         cmd_vel_pub_ = nh_.advertise<geometry_msgs::Twist>("/cmd_vel", 10);
@@ -253,8 +104,27 @@ public:
         // Subscribe to the detection topic
         detection_sub_ = nh_.subscribe("/detection", 10, &LaneDetectServer::detectionCallback, this);
 
+        // Subscribe to odometry for yaw tracking
+        odom_sub_ = nh_.subscribe("/odom", 10, &LaneDetectServer::odomCallback, this);
+
         as_.start();
         ROS_INFO("Lane Detection Action Server Started");
+
+        // Display navigation parameters
+        ROS_INFO("Navigation parameters:");
+        ROS_INFO("  max_linear_speed: %.2f m/s", max_linear_speed);
+        ROS_INFO("  max_angular_speed: %.2f rad/s", max_angular_speed);
+        ROS_INFO("  steering_sensitivity: %.2f", steering_sensitivity);
+        ROS_INFO("  non_linear_factor: %.2f", non_linear_factor);
+    }
+
+    ~LaneDetectServer()
+    {
+        // Ensure the robot stops when the server shuts down
+        geometry_msgs::Twist cmd;
+        cmd.linear.x = 0.0;
+        cmd.angular.z = 0.0;
+        cmd_vel_pub_.publish(cmd);
     }
 
     void imageCallback(const sensor_msgs::ImageConstPtr &msg)
@@ -273,6 +143,52 @@ public:
         catch (cv_bridge::Exception &e)
         {
             ROS_ERROR("Could not convert from '%s' to 'bgr8'.", msg->encoding.c_str());
+        }
+    }
+
+    // Callback for odometry data to get yaw information
+    void odomCallback(const nav_msgs::Odometry::ConstPtr &odom_msg)
+    {
+        // Extract quaternion orientation
+        tf::Quaternion q(
+            odom_msg->pose.pose.orientation.x,
+            odom_msg->pose.pose.orientation.y,
+            odom_msg->pose.pose.orientation.z,
+            odom_msg->pose.pose.orientation.w);
+
+        // Convert to Euler angles
+        tf::Matrix3x3 m(q);
+        double roll, pitch, yaw;
+        m.getRPY(roll, pitch, yaw);
+
+        // Store current yaw
+        current_yaw_ = yaw;
+
+        // Initialize initial_yaw_ if needed (first time in turn mode)
+        if (is_turn_mode_ && !yaw_initialized_)
+        {
+            initial_yaw_ = yaw;
+            yaw_initialized_ = true;
+            ROS_INFO("Initial yaw set to: %.2f degrees", initial_yaw_ * 180.0 / M_PI);
+        }
+
+        // Debug yaw information
+        if (is_turn_mode_ && yaw_initialized_)
+        {
+            // Calculate turn angle (handle wrap-around)
+            double yaw_diff = current_yaw_ - initial_yaw_;
+
+            // Normalize to [-π, π]
+            while (yaw_diff > M_PI)
+                yaw_diff -= 2 * M_PI;
+            while (yaw_diff < -M_PI)
+                yaw_diff += 2 * M_PI;
+
+            // Convert to degrees for easier debugging
+            double turn_degrees = yaw_diff * 180.0 / M_PI;
+
+            ROS_INFO_THROTTLE(1.0, "Current yaw: %.2f, Initial: %.2f, Diff: %.2f degrees",
+                              current_yaw_ * 180.0 / M_PI, initial_yaw_ * 180.0 / M_PI, turn_degrees);
         }
     }
 
@@ -343,14 +259,11 @@ public:
 
         cv::Mat roi_mask = cv::Mat::zeros(height, width, CV_8UC1);
 
-        // Using roi_height_factor from config to determine ROI area
-        int roi_height = static_cast<int>(height * roi_height_factor);
-
         std::vector<cv::Point> roi_points;
         roi_points.push_back(cv::Point(0, height));
         roi_points.push_back(cv::Point(width, height));
-        roi_points.push_back(cv::Point(width, roi_height));
-        roi_points.push_back(cv::Point(0, roi_height));
+        roi_points.push_back(cv::Point(width, height / 2));
+        roi_points.push_back(cv::Point(0, height / 2));
 
         cv::fillConvexPoly(roi_mask, roi_points, cv::Scalar(255, 0, 0));
         cv::bitwise_and(img_masked_, roi_mask, img_masked_);
@@ -379,6 +292,24 @@ public:
                         cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 255, 255), 2);
         }
 
+        // Display yaw information for turn modes
+        if (is_turn_mode_ && yaw_initialized_)
+        {
+            double yaw_diff = current_yaw_ - initial_yaw_;
+
+            // Normalize to [-π, π]
+            while (yaw_diff > M_PI)
+                yaw_diff -= 2 * M_PI;
+            while (yaw_diff < -M_PI)
+                yaw_diff += 2 * M_PI;
+
+            double turn_degrees = yaw_diff * 180.0 / M_PI;
+
+            std::string yaw_text = "Yaw: " + std::to_string(int(turn_degrees)) + " deg";
+            cv::putText(debug_img, yaw_text, cv::Point(width / 2 - 80, 60),
+                        cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 255, 255), 2);
+        }
+
         // 6. Call the mode-specific control method
         moveRobot(img_masked_, debug_img);
 
@@ -402,10 +333,29 @@ public:
 
         // Get actual driving mode to use for calculations
         std::string effective_mode = current_mode_;
+        std::string lane_follow_mode = "center"; // Default lane following mode
+
         if (current_mode_ == "intersection" && !actual_driving_mode_.empty())
         {
             // If in intersection mode, use the detected direction for actual driving
             effective_mode = actual_driving_mode_;
+        }
+
+        // For turn modes, determine which lane to follow based on sign parameter
+        if (current_mode_ == "just-turn-left" || current_mode_ == "just-turn-right")
+        {
+            // Use the sign parameter to determine which lane to follow
+            if (!target_sign_.empty())
+            {
+                lane_follow_mode = target_sign_; // Use "left" or "right" from sign parameter
+                ROS_INFO_THROTTLE(1.0, "Turn mode %s following %s lane",
+                                  current_mode_.c_str(), lane_follow_mode.c_str());
+            }
+            else
+            {
+                // Default lane to follow based on turn direction if no sign specified
+                lane_follow_mode = (current_mode_ == "just-turn-left") ? "left" : "right";
+            }
         }
 
         // Create multiple regions of interest (ROIs) for better analysis
@@ -493,7 +443,8 @@ public:
                     region_centers[r] = right_lane_x - x_previous_;
                 }
             }
-            else if (effective_mode == "left")
+            else if (effective_mode == "left" ||
+                     (is_turn_mode_ && lane_follow_mode == "left"))
             {
                 // Left mode follows left lane with offset
                 if (region_has_left[r])
@@ -507,7 +458,8 @@ public:
                     region_centers[r] = right_lane_x - 2 * x_previous_;
                 }
             }
-            else if (effective_mode == "right")
+            else if (effective_mode == "right" ||
+                     (is_turn_mode_ && lane_follow_mode == "right"))
             {
                 // Right mode follows right lane with offset
                 if (region_has_right[r])
@@ -585,7 +537,7 @@ public:
 
         // Display intersection flag count
         std::string flag_text = "Intersection Flag: " + std::to_string(intersection_flag_);
-        cv::putText(debug_img, flag_text, cv::Point(10, 60),
+        cv::putText(debug_img, flag_text, cv::Point(10, 90),
                     cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 255, 0), 2);
 
         // Update the previous state and current state
@@ -639,13 +591,43 @@ public:
             angular_z = 0.0;
         }
 
-        // Adaptive calculation for linear speed based on steering
-        // Reduce speed when turning sharply using speed_reduction_factor from config
-        double linear_x = max_linear_speed * (1.0 - speed_reduction_factor * fabs(angular_z / max_angular_speed));
+        // For turning modes, we might want to adjust the linear/angular speed
+        // to ensure a tighter turn radius
+        if (is_turn_mode_)
+        {
+            // Increase angular speed for turning modes to make turns faster
+            if (current_mode_ == "just-turn-left")
+            {
+                // Make sure we're turning left (negative angular_z is right turn in ROS)
+                if (angular_z > 0)
+                {
+                    angular_z = std::max(angular_z, max_angular_speed * 0.5); // At least 50% of max turn
+                }
+            }
+            else if (current_mode_ == "just-turn-right")
+            {
+                // Make sure we're turning right (positive angular_z is left turn in ROS)
+                if (angular_z < 0)
+                {
+                    angular_z = std::min(angular_z, -max_angular_speed * 0.5); // At least 50% of max turn
+                }
+            }
+        }
 
-        // Ensure minimum speed is maintained
-        if (linear_x < min_linear_speed)
-            linear_x = min_linear_speed;
+        // Adaptive calculation for linear speed based on steering
+        // Reduce speed when turning sharply
+        double linear_x = max_linear_speed * (1.0 - 0.7 * fabs(angular_z / max_angular_speed));
+
+        // For tight turns, reduce speed even more
+        if (is_turn_mode_)
+        {
+            linear_x *= 0.7; // 70% speed for turn modes
+
+            // Display lane following mode in debug
+            std::string follow_text = "Following: " + lane_follow_mode + " lane";
+            cv::putText(debug_img, follow_text, cv::Point(10, 120),
+                        cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 255, 0), 2);
+        }
 
         // Create and send movement command
         geometry_msgs::Twist cmd;
@@ -682,6 +664,16 @@ public:
         if (current_mode_ == "intersection")
         {
             actual_driving_mode_ = "center";
+        }
+
+        // Check if this is a turning mode
+        is_turn_mode_ = (current_mode_ == "just-turn-left" || current_mode_ == "just-turn-right");
+
+        // Reset yaw tracking for turn modes
+        if (is_turn_mode_)
+        {
+            yaw_initialized_ = false;
+            ROS_INFO("Turn mode activated: %s", current_mode_.c_str());
         }
 
         // Initialize x_previous_ with a reasonable value if it's zero
@@ -745,7 +737,37 @@ public:
                 }
             }
 
-            if (time_condition || sign_condition || lane_condition)
+            // Yaw-based turn success condition
+            bool turn_condition = false;
+            if (is_turn_mode_ && yaw_initialized_)
+            {
+                // Calculate turn angle (handle wrap-around)
+                double yaw_diff = current_yaw_ - initial_yaw_;
+
+                // Normalize to [-π, π]
+                while (yaw_diff > M_PI)
+                    yaw_diff -= 2 * M_PI;
+                while (yaw_diff < -M_PI)
+                    yaw_diff += 2 * M_PI;
+
+                // Convert to degrees
+                double turn_degrees = fabs(yaw_diff) * 180.0 / M_PI;
+
+                // Check if we've turned 88-92 degrees
+                if (turn_degrees >= 88.0 && turn_degrees <= 92.0)
+                {
+                    // Also check if turn direction matches mode
+                    if ((current_mode_ == "just-turn-right" && yaw_diff < 0) ||
+                        (current_mode_ == "just-turn-left" && yaw_diff > 0))
+                    {
+                        turn_condition = true;
+                        ROS_INFO("Turn completed: %.2f degrees in %s mode",
+                                 turn_degrees, current_mode_.c_str());
+                    }
+                }
+            }
+
+            if (time_condition || sign_condition || lane_condition || turn_condition)
             {
                 if (time_condition)
                     ROS_INFO("Duration completed: %.2f seconds", duration);
@@ -754,6 +776,8 @@ public:
                 if (lane_condition)
                     ROS_INFO("Intersection detected (flag=%d) while in %s mode",
                              intersection_flag_, current_mode_.c_str());
+                if (turn_condition)
+                    ROS_INFO("Turn completed at target angle");
 
                 success = true;
                 break;
