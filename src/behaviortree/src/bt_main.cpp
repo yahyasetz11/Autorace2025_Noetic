@@ -14,6 +14,7 @@ int main(int argc, char **argv)
 
     // Register custom action node
     factory.registerNodeType<LaneDetectActionNode>("LaneDetect");
+    factory.registerNodeType<ConstructionActionNode>("Construction");
 
     // Load XML dari file
     std::string xml_filename = ros::package::getPath("behaviortree") + "/xml/bt.xml";

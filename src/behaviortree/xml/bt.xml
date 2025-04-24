@@ -8,6 +8,7 @@
             <LaneDetect mode="just-turn-left" duration="60.0" sign="right"/>   <!-- Turn left (succeed after 90 degree) but following right lane -->
             <!-- <LaneDetect mode="left" duration="60.0" sign="left"/> --> <!-- Turn left (succeed after crossing one intersect or after 60s) -->
             <!--<LaneDetect mode="right" duration="60.0" sign="right"/> --> <!-- Turn right (succeed after crossing one intersect or after 60s) -->
+            <Construction />    <!-- Construction mission node -->
         </Sequence>
     </BehaviorTree>
 </root>

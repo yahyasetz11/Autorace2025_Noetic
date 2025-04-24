@@ -22,7 +22,9 @@ add_service_files(
 
 add_action_files(
   DIRECTORY action
-  FILES LaneDetect.action
+  FILES 
+  LaneDetect.action
+  Construction.action
 )
 
 ## Generate added messages and services

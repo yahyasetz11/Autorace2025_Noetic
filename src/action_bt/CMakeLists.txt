@@ -35,16 +35,12 @@ include_directories(
 
 # Declare the executable
 add_executable(lane_detect_server src/lane_detect_server.cpp)
-
-# Link libraries - explicitly include yaml-cpp
-target_link_libraries(lane_detect_server
-  ${catkin_LIBRARIES}
-  ${OpenCV_LIBRARIES}
-  ${YAML_CPP_LIBRARIES}
-)
-
-# Add dependencies
+target_link_libraries(lane_detect_server ${catkin_LIBRARIES} ${OpenCV_LIBRARIES} ${YAML_CPP_LIBRARIES})
 add_dependencies(lane_detect_server ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+
+add_executable(construction_server src/construction_server.cpp)
+target_link_libraries(construction_server ${catkin_LIBRARIES} ${YAML_CPP_LIBRARIES})
+add_dependencies(construction_server ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 # Install targets
 install(TARGETS lane_detect_server

@@ -1,0 +1,9 @@
+# Goal
+# No parameters needed for now as per requirements
+---
+# Result
+bool success       # Whether construction mission succeeded
+---
+# Feedback
+float32 time_elapsed  # Time elapsed
+string current_phase  # Current phase of the construction mission
