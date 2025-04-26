@@ -1,15 +1,17 @@
 construction:
   # Movement parameters
   linear_speed: 0.08 # Linear speed for forward movement (m/s)
-  angular_speed: 0.6 # Angular speed for turning (rad/s)
+  angular_speed: 1.0 # Angular speed for turning (rad/s)
 
   # Distance thresholds
-  wall_distance_threshold: 0.25 # Distance threshold to consider close to wall (m)
-  wall_side_distance_threshold: 4 # Distance threshold to consider close to wall (m)
+  wall_distance_threshold: 0.3 # Distance threshold to consider close to wall (m)
+  wall_side_distance_threshold: 3 # Distance threshold to consider close to wall (m)
 
   # Angle parameters
   front_scan_angle: 4.0 # Angle range to consider as "front" (degrees)
-  side_scan_angle: 75.0 # Angle range to consider as "side" (degrees)
+  side_scan_angle: 85.0 # Angle range to consider as "side" (degrees)
 
   # Turn precision
   turn_precision_threshold: 0.1 # Precision threshold for turn completion (rad)
+  turn_linear_speed: 0.08 # Linear speed for turning (m/s)
+  desired_radius: 0.2 # Factor to adjust turn radius (m)

@@ -1,5 +1,5 @@
 # Speed control parameters
-max_linear_speed: 0.2 # Maximum linear speed (m/s)
+max_linear_speed: 0.15 # Maximum linear speed (m/s)
 max_angular_speed: 1.8 # Maximum angular speed (rad/s)
 steering_sensitivity: 5.0 # Steering gain for lane following
 non_linear_factor: 1.5 # Non-linear factor for steering response

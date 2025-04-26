@@ -30,6 +30,9 @@ private:
     {
         MOVE_TO_WALL,
         TURN_LEFT_90,
+        TURN_LEFT_LAST,
+        ALIGN_WITH_LEFT_WALL,
+        ALIGN_WITH_RIGHT_WALL,
         MOVE_UNTIL_RIGHT_FRONT_CLEAR,
         TURN_RIGHT_180,
         MOVE_UNTIL_LEFT_FRONT_CLEAR,
@@ -48,6 +51,8 @@ private:
     double front_scan_angle_;
     double side_scan_angle_;
     double turn_precision_threshold_;
+    double turn_linear_speed_;
+    double desired_radius_;
 
     // Turn tracking
     double turn_target_angle_;
@@ -150,6 +155,10 @@ public:
                 side_scan_angle_ = construction["side_scan_angle"] ? construction["side_scan_angle"].as<double>() : 60.0;
 
                 turn_precision_threshold_ = construction["turn_precision_threshold"] ? construction["turn_precision_threshold"].as<double>() : 0.1;
+
+                turn_linear_speed_ = construction["turn_linear_speed"] ? construction["turn_linear_speed"].as<double>() : 0.08;
+
+                desired_radius_ = construction["desired_radius"] ? construction["desired_radius"].as<double>() : 0.5;
             }
             else
             {
@@ -159,9 +168,11 @@ public:
                 front_scan_angle_ = 10.0;
                 side_scan_angle_ = 60.0;
                 turn_precision_threshold_ = 0.1;
-            }
+                turn_linear_speed_ = 0.08;
+                desired_radius_ = 0.5;
 
-            ROS_INFO("Successfully loaded construction parameters from: %s", construction_config_path_.c_str());
+                ROS_INFO("Successfully loaded construction parameters from: %s", construction_config_path_.c_str());
+            }
         }
         catch (const YAML::Exception &e)
         {
@@ -172,10 +183,13 @@ public:
             front_scan_angle_ = 10.0;
             side_scan_angle_ = 60.0;
             turn_precision_threshold_ = 0.1;
+            turn_linear_speed_ = 0.08;
+            desired_radius_ = 0.5;
         }
     }
 
-    void laserCallback(const sensor_msgs::LaserScan::ConstPtr &scan)
+    void
+    laserCallback(const sensor_msgs::LaserScan::ConstPtr &scan)
     {
         latest_scan_ = *scan;
         scan_received_ = true;
@@ -230,14 +244,62 @@ public:
         return min_dist;
     }
 
+    double getLeftSideDistance(double angle_offset = 0.0)
+    {
+        // Get distance at 90 degrees to the left + any offset
+        double angle = 90.0 + angle_offset;
+        return getDistanceInRange(angle);
+    }
+
+    double getRightSideDistance(double angle_offset = 0.0)
+    {
+        // Get distance at 90 degrees to the right + any offset
+        double angle = 270.0 + angle_offset;
+        return getDistanceInRange(angle);
+    }
+
+    bool isParallelToLeftWall()
+    {
+        // Compare distances at two points along the wall
+        double front_left = getLeftSideDistance(-15.0); // 75 degrees (forward-left)
+        double back_left = getLeftSideDistance(15.0);   // 105 degrees (backward-left)
+
+        // If distances are similar, robot is parallel
+        double diff = std::abs(front_left - back_left);
+
+        ROS_INFO("Wall alignment check - Front: %.2f, Back: %.2f, Diff: %.2f",
+                 front_left, back_left, diff);
+
+        // Consider parallel if difference is less than 5cm
+        return diff < 0.05;
+    }
+
+    bool isParallelToRightWall()
+    {
+        // Compare distances at two points along the wall
+        double front_right = getRightSideDistance(-15.0); // 75 degrees (forward-right)
+        double back_right = getRightSideDistance(15.0);   // 105 degrees (backward-right)
+
+        // If distances are similar, robot is parallel
+        double diff = std::abs(front_right - back_right);
+
+        ROS_INFO("Wall alignment check - Front: %.2f, Back: %.2f, Diff: %.2f",
+                 front_right, back_right, diff);
+
+        // Consider parallel if difference is less than 5cm
+        return diff < 0.05;
+    }
+
     double getRightFrontDistance()
     {
         double min_dist = latest_scan_.range_max;
 
         // Check ranges in right front area
-        for (double angle = 360.0 - (side_scan_angle_ - 3.0); angle <= 360 - side_scan_angle_; angle += 1.0)
+        ROS_INFO("Checking angles from %.1f to %.1f degrees", 360.0 - (side_scan_angle_ - 3.0), 360.0 - side_scan_angle_);
+        for (double angle = 360.0 - (side_scan_angle_ - 10.0); angle <= 360 - side_scan_angle_; angle += 1.0)
         {
             double dist = getDistanceInRange(angle);
+            ROS_INFO("Angle: %.1f, Distance: %.2f", angle, dist);
             if (dist > 0 && dist < min_dist)
             {
                 min_dist = dist;
@@ -252,9 +314,11 @@ public:
         double min_dist = latest_scan_.range_max;
 
         // Check ranges in left front area
-        for (double angle = side_scan_angle_; angle <= side_scan_angle_ + 3.0; angle += 1.0)
+        ROS_INFO("Checking angles from %.1f to %.1f degrees", 360.0 - (side_scan_angle_ - 3.0), 360.0 - side_scan_angle_);
+        for (double angle = side_scan_angle_; angle <= side_scan_angle_ + 10.0; angle += 1.0)
         {
             double dist = getDistanceInRange(angle);
+            ROS_INFO("Angle: %.1f, Distance: %.2f", angle, dist);
             if (dist > 0 && dist < min_dist)
             {
                 min_dist = dist;
@@ -300,7 +364,7 @@ public:
     void turnLeft(double angular_speed)
     {
         geometry_msgs::Twist cmd;
-        cmd.linear.x = 0.04;
+        cmd.linear.x = 0.08;
         cmd.angular.z = angular_speed;
         cmd_vel_pub_.publish(cmd);
     }
@@ -308,9 +372,41 @@ public:
     void turnRight(double angular_speed)
     {
         geometry_msgs::Twist cmd;
-        cmd.linear.x = 0.04;
+        cmd.linear.x = 0.08;
         cmd.angular.z = -angular_speed;
         cmd_vel_pub_.publish(cmd);
+    }
+
+    void turnWithRadius(bool turnRight, double desired_radius, double linear_speed)
+    {
+        geometry_msgs::Twist cmd;
+
+        // Ensure minimum radius to prevent division by zero
+        double radius = std::max(desired_radius, 0.1);
+
+        // Calculate the required angular velocity based on the desired radius
+        // radius = linear_speed / angular_speed
+        // so: angular_speed = linear_speed / radius
+        double angular_speed = linear_speed / radius;
+
+        // Set linear velocity
+        cmd.linear.x = linear_speed;
+
+        // Set angular velocity with direction
+        if (turnRight)
+        {
+            cmd.angular.z = -angular_speed;
+        }
+        else
+        {
+            cmd.angular.z = angular_speed;
+        }
+
+        cmd_vel_pub_.publish(cmd);
+
+        // Debug output
+        ROS_INFO_THROTTLE(0.5, "Radius turn: linear=%.2f, angular=%.2f, target radius=%.2f",
+                          cmd.linear.x, cmd.angular.z, radius);
     }
 
     void executeCB(const msg_file::ConstructionGoalConstPtr &goal)
@@ -384,7 +480,7 @@ public:
                 feedback_.current_phase = "Turning left 90 degrees";
 
                 // Simple timed turn - 90 degrees
-                double turn_duration = 90.0 / (angular_speed_ * (180.0 / M_PI));
+                double turn_duration = 97.0 / (angular_speed_ * (180.0 / M_PI));
                 double elapsed = (ros::Time::now() - turn_start_time_).toSec();
 
                 ROS_INFO_THROTTLE(0.5, "Phase: Turn left 90, elapsed: %.2f, target: %.2f",
@@ -394,13 +490,79 @@ public:
                 {
                     // Turn complete, stop and transition to next phase
                     stopRobot();
-                    current_phase_ = MOVE_UNTIL_RIGHT_FRONT_CLEAR;
-                    ROS_INFO("Left turn complete. Moving until right front is clear.");
+                    current_phase_ = ALIGN_WITH_RIGHT_WALL;
+                    ROS_INFO("Left turn complete. Aligning with the Right Wall.");
                 }
                 else
                 {
                     // Continue turning
                     turnLeft(angular_speed_);
+                }
+                break;
+            }
+
+            case ALIGN_WITH_LEFT_WALL:
+            {
+                feedback_.current_phase = "Aligning with wall";
+
+                if (isParallelToLeftWall())
+                {
+                    // We're parallel, move to next phase
+                    stopRobot();
+                    current_phase_ = MOVE_UNTIL_LEFT_FRONT_CLEAR;
+                    ROS_INFO("Aligned with wall");
+                }
+                else
+                {
+                    // Not parallel yet, make small adjustments
+                    double front_left = getLeftSideDistance(-15.0);
+                    double back_left = getLeftSideDistance(15.0);
+
+                    if (front_left > back_left)
+                    {
+                        // Front is farther from wall than back, need to turn right slightly
+                        rotateRight(angular_speed_ * 0.3); // Slower rotation for fine adjustment
+                        ROS_INFO("Aligning: turning right slightly");
+                    }
+                    else
+                    {
+                        // Back is farther from wall than front, need to turn left slightly
+                        rotateLeft(angular_speed_ * 0.3); // Slower rotation for fine adjustment
+                        ROS_INFO("Aligning: turning left slightly");
+                    }
+                }
+                break;
+            }
+
+            case ALIGN_WITH_RIGHT_WALL:
+            {
+                feedback_.current_phase = "Aligning with right wall";
+
+                if (isParallelToRightWall())
+                {
+                    // We're parallel, move to next phase
+                    stopRobot();
+                    current_phase_ = MOVE_UNTIL_RIGHT_FRONT_CLEAR;
+                    ROS_INFO("Aligned with right wall");
+                }
+                else
+                {
+                    // Not parallel yet, make small adjustments
+                    double front_right = getRightSideDistance(-15.0);
+                    double back_right = getRightSideDistance(15.0);
+
+                    if (front_right > back_right)
+                    {
+                        // Front is farther from wall than back, need to turn left slightly
+                        rotateLeft(angular_speed_ * 0.3); // Slower rotation for fine adjustment
+                        ROS_INFO("Aligning: turning left slightly");
+                    }
+                    else
+                    {
+                        // Back is farther from wall than front, need to turn right slightly
+                        rotateRight(angular_speed_ * 0.3); // Slower rotation for fine adjustment
+                        ROS_INFO("Aligning: turning right slightly");
+                    }
                 }
                 break;
             }
@@ -432,26 +594,34 @@ public:
 
             case TURN_RIGHT_180:
             {
-                feedback_.current_phase = "Turning right 180 degrees";
+                feedback_.current_phase = "Turning right 180 degrees with radius";
 
-                // Simple timed turn - 180 degrees
-                double turn_duration = 180.0 / (angular_speed_ * (180.0 / M_PI));
+                // Set your desired radius directly in meters
+                double desired_radius = desired_radius_; // 0.5 meters radius
+                double linear_speed = linear_speed_;     // Lower for more control
+
+                // Calculate path length for a 180° turn with this radius
+                double arc_length = M_PI * desired_radius;
+
+                // Time to travel this arc = distance / speed
+                double expected_turn_time = arc_length / linear_speed;
+
                 double elapsed = (ros::Time::now() - turn_start_time_).toSec();
 
-                ROS_INFO_THROTTLE(0.5, "Phase: Turn right 180, elapsed: %.2f, target: %.2f",
-                                  elapsed, turn_duration);
+                ROS_INFO_THROTTLE(0.5, "Radius turn: elapsed=%.2f/%.2f, radius=%.2f m, arc=%.2f m",
+                                  elapsed, expected_turn_time, desired_radius, arc_length);
 
-                if (elapsed >= turn_duration)
+                if (elapsed >= expected_turn_time)
                 {
                     // Turn complete, stop and transition to next phase
                     stopRobot();
                     current_phase_ = MOVE_UNTIL_LEFT_FRONT_CLEAR;
-                    ROS_INFO("Right turn complete. Moving until left front is clear.");
+                    ROS_INFO("Radius right turn complete. Moving until left front is clear.");
                 }
                 else
                 {
-                    // Continue turning
-                    turnRight(angular_speed_);
+                    // Continue radius turn - true = turn right, with specific radius
+                    turnWithRadius(true, desired_radius, linear_speed);
                 }
                 break;
             }
@@ -468,7 +638,7 @@ public:
                 {
                     // Left front is clear, stop and transition to next phase
                     stopRobot();
-                    current_phase_ = TURN_LEFT_180;
+                    current_phase_ = TURN_LEFT_LAST;
                     turn_start_time_ = ros::Time::now();
                     current_angle_ = 0;
                     ROS_INFO("Left front is clear. Starting left turn 180.");
@@ -481,28 +651,62 @@ public:
                 break;
             }
 
-            case TURN_LEFT_180:
+            case TURN_LEFT_LAST:
             {
-                feedback_.current_phase = "Turning left 180 degrees";
+                feedback_.current_phase = "Turning left 90 degrees";
 
-                // Simple timed turn - 180 degrees
-                double turn_duration = 180.0 / (angular_speed_ * (180.0 / M_PI));
+                // Simple timed turn - 90 degrees
+                double turn_duration = 97.0 / (angular_speed_ * (180.0 / M_PI));
                 double elapsed = (ros::Time::now() - turn_start_time_).toSec();
 
-                ROS_INFO_THROTTLE(0.5, "Phase: Turn left 180, elapsed: %.2f, target: %.2f",
+                ROS_INFO_THROTTLE(0.5, "Phase: Turn left 90, elapsed: %.2f, target: %.2f",
                                   elapsed, turn_duration);
 
                 if (elapsed >= turn_duration)
                 {
-                    // Turn complete, mission completed
+                    // Turn complete, stop and transition to next phase
                     stopRobot();
                     current_phase_ = COMPLETED;
-                    ROS_INFO("Left turn complete. Construction mission completed.");
+                    ROS_INFO("Left turn complete. Starting left turn 180.");
                 }
                 else
                 {
                     // Continue turning
-                    turnLeft(angular_speed_);
+                    rotateLeft(angular_speed_);
+                }
+                break;
+            }
+
+            case TURN_LEFT_180:
+            {
+                feedback_.current_phase = "Turning left 180 degrees with radius";
+
+                // Set your desired radius directly in meters
+                double desired_radius = desired_radius_; // 0.5 meters radius
+                double linear_speed = linear_speed_;     // Lower for more control
+
+                // Calculate path length for a 180° turn with this radius
+                double arc_length = M_PI * desired_radius;
+
+                // Time to travel this arc = distance / speed
+                double expected_turn_time = arc_length / linear_speed;
+
+                double elapsed = (ros::Time::now() - turn_start_time_).toSec();
+
+                ROS_INFO_THROTTLE(0.5, "Radius turn: elapsed=%.2f/%.2f, radius=%.2f m, arc=%.2f m",
+                                  elapsed, expected_turn_time, desired_radius, arc_length);
+
+                if (elapsed >= expected_turn_time)
+                {
+                    // Turn complete, stop and transition to next phase
+                    stopRobot();
+                    current_phase_ = COMPLETED;
+                    ROS_INFO("Radius right turn complete. Mission completed.");
+                }
+                else
+                {
+                    // Continue radius turn - false = turn left, with specific radius
+                    turnWithRadius(false, desired_radius, linear_speed);
                 }
                 break;
             }
