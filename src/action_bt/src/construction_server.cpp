@@ -44,6 +44,7 @@ private:
 
     // Distance and angle parameters
     double wall_distance_threshold_;
+    double wall_side_distance_threshold_;
     double front_scan_angle_;
     double side_scan_angle_;
     double turn_precision_threshold_;
@@ -54,8 +55,9 @@ private:
     ros::Time turn_start_time_;
     ros::Time phase_start_time_;
 
-    // Config file path
-    std::string config_path_;
+    // Config file paths
+    std::string speed_config_path_;
+    std::string construction_config_path_;
 
 public:
     ConstructionServer(std::string name) : as_(nh_, name, boost::bind(&ConstructionServer::executeCB, this, _1), false),
@@ -64,12 +66,13 @@ public:
                                            current_phase_(MOVE_TO_WALL),
                                            current_angle_(0.0)
     {
-        // Get config file path from parameter server or use default
-        nh_.param<std::string>("construction_config_path", config_path_,
-                               ros::package::getPath("action_bt") + "/config/construction_params.yaml");
+        // Define config file paths (using the src/config directory)
+        speed_config_path_ = ros::package::getPath("action_bt") + "/../config/speed_conf.yaml";
+        construction_config_path_ = ros::package::getPath("action_bt") + "/../config/construction_params.yaml";
 
-        // Load parameters directly from YAML file
-        loadParameters();
+        // Load parameters from YAML file
+        loadSpeedParameters();
+        loadConstructionParameters();
 
         // Publishers
         cmd_vel_pub_ = nh_.advertise<geometry_msgs::Twist>("/cmd_vel", 10);
@@ -79,8 +82,16 @@ public:
 
         as_.start();
         ROS_INFO("Construction Action Server Started");
-        ROS_INFO("Parameters: linear_speed=%.2f, angular_speed=%.2f, wall_dist=%.2f",
-                 linear_speed_, angular_speed_, wall_distance_threshold_);
+        ROS_INFO("Speed parameters from %s:", speed_config_path_.c_str());
+        ROS_INFO("  linear_speed: %.2f m/s", linear_speed_);
+        ROS_INFO("  angular_speed: %.2f rad/s", angular_speed_);
+
+        ROS_INFO("Construction parameters from %s:", construction_config_path_.c_str());
+        ROS_INFO("  wall_distance_threshold: %.2f m", wall_distance_threshold_);
+        ROS_INFO("  wall_side_distance_threshold: %.2f m", wall_side_distance_threshold_);
+        ROS_INFO("  front_scan_angle: %.2f degrees", front_scan_angle_);
+        ROS_INFO("  side_scan_angle: %.2f degrees", side_scan_angle_);
+        ROS_INFO("  turn_precision_threshold: %.2f rad", turn_precision_threshold_);
     }
 
     ~ConstructionServer()
@@ -89,53 +100,77 @@ public:
         stopRobot();
     }
 
-    void loadParameters()
+    void loadSpeedParameters()
     {
         try
         {
-            ROS_INFO("Loading parameters from: %s", config_path_.c_str());
-            YAML::Node config = YAML::LoadFile(config_path_);
+            YAML::Node config = YAML::LoadFile(speed_config_path_);
 
             // Extract parameters with defaults if not found
+            // For consistency, we use max_linear_speed and max_angular_speed from speed_conf.yaml
+            linear_speed_ = config["max_linear_speed"] ? config["max_linear_speed"].as<double>() * 0.5 : 0.08;
+            angular_speed_ = config["max_angular_speed"] ? config["max_angular_speed"].as<double>() * 0.7 : 0.5;
+
+            ROS_INFO("Successfully loaded speed parameters from: %s", speed_config_path_.c_str());
+        }
+        catch (const YAML::Exception &e)
+        {
+            ROS_ERROR("Error loading speed configuration YAML file: %s", e.what());
+            ROS_WARN("Using default speed parameters");
+            // Default values
+            linear_speed_ = 0.08;
+            angular_speed_ = 0.5;
+        }
+    }
+
+    void loadConstructionParameters()
+    {
+        try
+        {
+            YAML::Node config = YAML::LoadFile(construction_config_path_);
+
+            // Extract parameters from construction section
             if (config["construction"])
             {
                 YAML::Node construction = config["construction"];
 
-                linear_speed_ = construction["linear_speed"] ? construction["linear_speed"].as<double>() : 0.1;
+                // Only override linear_speed and angular_speed if they're explicitly specified in construction params
+                if (construction["linear_speed"])
+                    linear_speed_ = construction["linear_speed"].as<double>();
 
-                angular_speed_ = construction["angular_speed"] ? construction["angular_speed"].as<double>() : 0.5;
+                if (construction["angular_speed"])
+                    angular_speed_ = construction["angular_speed"].as<double>();
 
                 wall_distance_threshold_ = construction["wall_distance_threshold"] ? construction["wall_distance_threshold"].as<double>() : 0.3;
 
+                wall_side_distance_threshold_ = construction["wall_side_distance_threshold"] ? construction["wall_side_distance_threshold"].as<double>() : 4;
+
                 front_scan_angle_ = construction["front_scan_angle"] ? construction["front_scan_angle"].as<double>() : 10.0;
 
-                side_scan_angle_ = construction["side_scan_angle"] ? construction["side_scan_angle"].as<double>() : 30.0;
+                side_scan_angle_ = construction["side_scan_angle"] ? construction["side_scan_angle"].as<double>() : 60.0;
 
                 turn_precision_threshold_ = construction["turn_precision_threshold"] ? construction["turn_precision_threshold"].as<double>() : 0.1;
             }
             else
             {
                 ROS_WARN("Construction section not found in config file. Using defaults.");
-                linear_speed_ = 0.1;
-                angular_speed_ = 0.5;
                 wall_distance_threshold_ = 0.3;
+                wall_side_distance_threshold_ = 4;
                 front_scan_angle_ = 10.0;
-                side_scan_angle_ = 30.0;
+                side_scan_angle_ = 60.0;
                 turn_precision_threshold_ = 0.1;
             }
 
-            ROS_INFO("Parameters loaded: linear_speed=%.2f, angular_speed=%.2f, wall_dist=%.2f",
-                     linear_speed_, angular_speed_, wall_distance_threshold_);
+            ROS_INFO("Successfully loaded construction parameters from: %s", construction_config_path_.c_str());
         }
         catch (const YAML::Exception &e)
         {
-            ROS_ERROR("Error loading YAML file: %s", e.what());
-            ROS_WARN("Using default parameters");
-            linear_speed_ = 0.1;
-            angular_speed_ = 0.5;
+            ROS_ERROR("Error loading construction configuration YAML file: %s", e.what());
+            ROS_WARN("Using default construction parameters");
             wall_distance_threshold_ = 0.3;
+            wall_side_distance_threshold_ = 4;
             front_scan_angle_ = 10.0;
-            side_scan_angle_ = 30.0;
+            side_scan_angle_ = 60.0;
             turn_precision_threshold_ = 0.1;
         }
     }
@@ -200,7 +235,7 @@ public:
         double min_dist = latest_scan_.range_max;
 
         // Check ranges in right front area
-        for (double angle = -side_scan_angle_; angle <= -10.0; angle += 1.0)
+        for (double angle = 360.0 - (side_scan_angle_ - 3.0); angle <= 360 - side_scan_angle_; angle += 1.0)
         {
             double dist = getDistanceInRange(angle);
             if (dist > 0 && dist < min_dist)
@@ -217,7 +252,7 @@ public:
         double min_dist = latest_scan_.range_max;
 
         // Check ranges in left front area
-        for (double angle = 10.0; angle <= side_scan_angle_; angle += 1.0)
+        for (double angle = side_scan_angle_; angle <= side_scan_angle_ + 3.0; angle += 1.0)
         {
             double dist = getDistanceInRange(angle);
             if (dist > 0 && dist < min_dist)
@@ -246,7 +281,7 @@ public:
         cmd_vel_pub_.publish(cmd);
     }
 
-    void turnLeft(double angular_speed)
+    void rotateLeft(double angular_speed)
     {
         geometry_msgs::Twist cmd;
         cmd.linear.x = 0.0;
@@ -254,10 +289,26 @@ public:
         cmd_vel_pub_.publish(cmd);
     }
 
-    void turnRight(double angular_speed)
+    void rotateRight(double angular_speed)
     {
         geometry_msgs::Twist cmd;
         cmd.linear.x = 0.0;
+        cmd.angular.z = -angular_speed;
+        cmd_vel_pub_.publish(cmd);
+    }
+
+    void turnLeft(double angular_speed)
+    {
+        geometry_msgs::Twist cmd;
+        cmd.linear.x = 0.04;
+        cmd.angular.z = angular_speed;
+        cmd_vel_pub_.publish(cmd);
+    }
+
+    void turnRight(double angular_speed)
+    {
+        geometry_msgs::Twist cmd;
+        cmd.linear.x = 0.04;
         cmd.angular.z = -angular_speed;
         cmd_vel_pub_.publish(cmd);
     }
@@ -360,9 +411,9 @@ public:
                 double right_front_dist = getRightFrontDistance();
 
                 ROS_INFO_THROTTLE(0.5, "Phase: Move until right front clear, distance: %.2f (threshold: %.2f)",
-                                  right_front_dist, wall_distance_threshold_ * 2);
+                                  right_front_dist, wall_side_distance_threshold_);
 
-                if (right_front_dist > wall_distance_threshold_ * 2)
+                if (right_front_dist > wall_side_distance_threshold_)
                 {
                     // Right front is clear, stop and transition to next phase
                     stopRobot();
@@ -411,9 +462,9 @@ public:
                 double left_front_dist = getLeftFrontDistance();
 
                 ROS_INFO_THROTTLE(0.5, "Phase: Move until left front clear, distance: %.2f (threshold: %.2f)",
-                                  left_front_dist, wall_distance_threshold_ * 2);
+                                  left_front_dist, wall_side_distance_threshold_);
 
-                if (left_front_dist > wall_distance_threshold_ * 2)
+                if (left_front_dist > wall_side_distance_threshold_)
                 {
                     // Left front is clear, stop and transition to next phase
                     stopRobot();

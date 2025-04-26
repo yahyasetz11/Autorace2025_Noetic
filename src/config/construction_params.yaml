@@ -5,10 +5,11 @@ construction:
 
   # Distance thresholds
   wall_distance_threshold: 0.25 # Distance threshold to consider close to wall (m)
+  wall_side_distance_threshold: 4 # Distance threshold to consider close to wall (m)
 
   # Angle parameters
-  front_scan_angle: 10.0 # Angle range to consider as "front" (degrees)
-  side_scan_angle: 30.0 # Angle range to consider as "side" (degrees)
+  front_scan_angle: 4.0 # Angle range to consider as "front" (degrees)
+  side_scan_angle: 75.0 # Angle range to consider as "side" (degrees)
 
   # Turn precision
   turn_precision_threshold: 0.1 # Precision threshold for turn completion (rad)

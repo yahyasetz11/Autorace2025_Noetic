@@ -3,6 +3,7 @@
 #include <behaviortree_cpp_v3/loggers/bt_cout_logger.h>
 #include <ros/package.h>
 #include "lane_detect_action_node.h"
+#include "construction_action_node.h"
 
 int main(int argc, char **argv)
 {
