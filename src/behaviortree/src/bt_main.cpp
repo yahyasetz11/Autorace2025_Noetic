@@ -4,6 +4,7 @@
 #include <ros/package.h>
 #include "lane_detect_action_node.h"
 #include "construction_action_node.h"
+#include "tunnel_nav_action_node.h"
 
 int main(int argc, char **argv)
 {
@@ -16,6 +17,7 @@ int main(int argc, char **argv)
     // Register custom action node
     factory.registerNodeType<LaneDetectActionNode>("LaneDetect");
     factory.registerNodeType<ConstructionActionNode>("Construction");
+    factory.registerNodeType<TunnelNavActionNode>("TunnelNav");
 
     // Load XML dari file
     std::string xml_filename = ros::package::getPath("behaviortree") + "/xml/bt.xml";

@@ -12,6 +12,8 @@ find_package(catkin REQUIRED COMPONENTS
   cv_bridge
   image_transport
   geometry_msgs
+  tf
+  move_base_msgs
 )
 
 # Find OpenCV
@@ -30,6 +32,7 @@ catkin_package(
 include_directories(
   ${catkin_INCLUDE_DIRS}
   ${OpenCV_INCLUDE_DIRS}
+  ${Boost_INCLUDE_DIRS}
   ${YAML_CPP_INCLUDE_DIRS}
 )
 
@@ -41,6 +44,10 @@ add_dependencies(lane_detect_server ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin
 add_executable(construction_server src/construction_server.cpp)
 target_link_libraries(construction_server ${catkin_LIBRARIES} ${YAML_CPP_LIBRARIES})
 add_dependencies(construction_server ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+
+add_executable(tunnel_nav_server src/tunnel_nav_server.cpp)
+target_link_libraries(tunnel_nav_server ${catkin_LIBRARIES} ${YAML_CPP_LIBRARIES})
+add_dependencies(tunnel_nav_server ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 # Install targets
 install(TARGETS lane_detect_server

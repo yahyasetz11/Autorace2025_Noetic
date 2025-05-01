@@ -1,0 +1,11 @@
+# Goal
+string mode         # "online" or "offline"
+string map_file     # Map file path (used in offline mode)
+---
+# Result
+bool success        # Whether navigation succeeded
+string map_path     # Path to the saved map (only for online mode)
+---
+# Feedback
+float32 distance_to_goal  # Current distance to goal
+string current_state      # Current navigation state
