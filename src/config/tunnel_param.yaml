@@ -1,34 +1,20 @@
 tunnel_navigation:
-  # Wall detection parameters
-  wall_distance_threshold: 0.5 # Distance to detect wall (meters)
-  wall_detection_angle: 270 # Angle in degrees for wall detection (270 = right side)
+  # Navigation parameters
+  navigation_timeout: 300.0 # Maximum time to wait for navigation (seconds)
 
-  # Velocity parameters
-  initial_linear_speed: 0.2 # Linear speed during initial phase (m/s)
-  max_linear_speed: 0.2 # Maximum linear speed during navigation (m/s)
-  max_angular_speed: 1.0 # Maximum angular speed during navigation (rad/s)
-  slow_factor_near_goal: 0.5 # Factor to slow down when approaching goal
+  # Multiple goal navigation
+  goal_total: 2 # Total number of goals to navigate to sequentially
 
-  # Map parameters
-  maps_folder: "maps" # Folder name within turtlebot3_navigation package
-  default_map_name: "tunnel_map" # Default base name for saved maps
+  # Array of goal poses [x, y, yaw]
+  goal_poses:
+    - [-1.0, -1.0, 0]
+    - [-0.25, -1.5, -1.57]
 
-  # Default goal position (if not specified in behavior tree)
+  # Map saving parameters
+  map_base_path: "~/Documents/Autorace2025_Noetic/src/maps/maps" # Base path for saved maps
+
+  # Default goal (used if goal_poses is not defined, for backward compatibility)
   default_goal:
     x: 2.0
     y: 0.0
     yaw: 0.0 # In radians
-
-  # Navigation parameters
-  navigation_timeout: 300.0 # Maximum time to wait for navigation (seconds)
-  min_obstacle_distance: 0.3 # Minimum distance to consider an obstacle (meters)
-  recovery_behavior_enabled: true # Enable recovery behaviors when stuck
-
-  # SLAM parameters
-  gmapping:
-    max_range: 10.0
-    map_update_interval: 2.0
-    minimumScore: 50
-
-  # Map saving parameters
-  map_save_enabled: true # Whether to save maps in online mode

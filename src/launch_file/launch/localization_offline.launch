@@ -4,7 +4,7 @@
   </include>
   
   <!-- Override AMCL parameters -->
-  <param name="/amcl/initial_pose_x" value="YOUR_X_VALUE"/>
-  <param name="/amcl/initial_pose_y" value="YOUR_Y_VALUE"/>
-  <param name="/amcl/initial_pose_a" value="YOUR_ORIENTATION_IN_RADIANS"/>
+  <param name="/amcl/initial_pose_x" value="-1.7"/>
+  <param name="/amcl/initial_pose_y" value="-0.25"/>
+  <param name="/amcl/initial_pose_a" value="-1.570796"/>
 </launch>

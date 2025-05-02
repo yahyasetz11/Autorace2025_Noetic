@@ -23,29 +23,20 @@ public:
     {
         return {
             BT::InputPort<std::string>("mode", "online", "SLAM mode: online or offline"),
-            BT::InputPort<std::string>("map_file", "", "Map file path (for offline mode, optional)"),
             BT::OutputPort<std::string>("map_path", "Path to the saved map (only for online mode)")};
     }
 
     BT::NodeStatus tick() override
     {
-        // Get input parameters (only mode and map_file from behavior tree)
+        // Get input parameter (only mode from behavior tree)
         std::string mode = "online";
-        std::string map_file = "";
-
         getInput("mode", mode);
-        getInput("map_file", map_file);
 
         // Create and send the goal
         msg_file::TunnelNavGoal goal;
         goal.mode = mode;
-        goal.map_file = map_file;
 
         ROS_INFO("Sending tunnel navigation goal - Mode: %s", mode.c_str());
-        if (mode == "offline")
-        {
-            ROS_INFO("Map file: %s", map_file.empty() ? "using default" : map_file.c_str());
-        }
 
         client_.sendGoal(goal);
 

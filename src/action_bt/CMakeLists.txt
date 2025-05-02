@@ -49,9 +49,6 @@ add_executable(tunnel_nav_server src/tunnel_nav_server.cpp)
 target_link_libraries(tunnel_nav_server ${catkin_LIBRARIES} ${YAML_CPP_LIBRARIES})
 add_dependencies(tunnel_nav_server ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
-add_executable(tunnel_nav_direct src/tunnel_nav_direct.cpp)
-target_link_libraries(tunnel_nav_direct ${catkin_LIBRARIES})
-add_dependencies(tunnel_nav_direct ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 # Install targets
 install(TARGETS lane_detect_server
