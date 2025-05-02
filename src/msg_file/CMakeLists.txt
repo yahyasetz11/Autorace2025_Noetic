@@ -26,6 +26,8 @@ add_action_files(
   LaneDetect.action
   Construction.action
   TunnelNav.action
+  Move.action
+  Rotate.action
 )
 
 ## Generate added messages and services

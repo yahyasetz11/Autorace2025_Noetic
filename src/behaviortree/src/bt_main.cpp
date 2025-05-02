@@ -5,6 +5,8 @@
 #include "lane_detect_action_node.h"
 #include "construction_action_node.h"
 #include "tunnel_nav_action_node.h"
+#include "move_action_node.h"
+#include "rotate_action_node.h"
 
 int main(int argc, char **argv)
 {
@@ -18,6 +20,8 @@ int main(int argc, char **argv)
     factory.registerNodeType<LaneDetectActionNode>("LaneDetect");
     factory.registerNodeType<ConstructionActionNode>("Construction");
     factory.registerNodeType<TunnelNavActionNode>("TunnelNav");
+    factory.registerNodeType<MoveActionNode>("Move");
+    factory.registerNodeType<RotateActionNode>("Rotate");
 
     // Load XML dari file
     std::string xml_filename = ros::package::getPath("behaviortree") + "/xml/bt.xml";

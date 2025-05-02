@@ -1,0 +1,10 @@
+# Goal
+string mode      # "forward" or "backward"
+string until     # "front", "back", "right", or "left" 
+float32 distance # Distance threshold in meters
+---
+# Result
+bool success     # Whether the movement succeeded
+---
+# Feedback
+float32 current_distance # Current distance to obstacle

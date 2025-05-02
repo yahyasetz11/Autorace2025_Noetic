@@ -1,0 +1,10 @@
+# Goal
+string direction   # "clockwise" or "counterclockwise"
+float32 angle      # Angle to rotate in degrees (positive value)
+---
+# Result
+bool success       # Whether the rotation succeeded
+float32 final_angle # Final angle achieved after rotation (in degrees)
+---
+# Feedback
+float32 current_angle # Current angle rotated (in degrees)

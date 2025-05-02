@@ -49,9 +49,22 @@ add_executable(tunnel_nav_server src/tunnel_nav_server.cpp)
 target_link_libraries(tunnel_nav_server ${catkin_LIBRARIES} ${YAML_CPP_LIBRARIES})
 add_dependencies(tunnel_nav_server ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
+add_executable(move_server src/move_server.cpp)
+target_link_libraries(move_server ${catkin_LIBRARIES} ${YAML_CPP_LIBRARIES})
+add_dependencies(move_server ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+
+add_executable(rotate_server src/rotate_server.cpp)
+target_link_libraries(rotate_server ${catkin_LIBRARIES} ${YAML_CPP_LIBRARIES})
+add_dependencies(rotate_server ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+
 
 # Install targets
-install(TARGETS lane_detect_server
+install(TARGETS 
+  lane_detect_server
+  construction_server
+  tunnel_nav_server
+  move_server 
+  rotate_server
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
