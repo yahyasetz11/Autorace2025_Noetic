@@ -3,7 +3,6 @@
 #include <actionlib/server/simple_action_server.h>
 #include <msg_file/RotateAction.h>
 #include <geometry_msgs/Twist.h>
-#include <sensor_msgs/LaserScan.h>
 #include <nav_msgs/Odometry.h>
 #include <tf/transform_datatypes.h>
 #include <yaml-cpp/yaml.h>
@@ -31,7 +30,6 @@ private:
 
     // Odometry data
     double current_yaw_; // in radians
-    double initial_yaw_; // in radians
     bool odom_received_;
 
     // Action parameters
@@ -129,9 +127,12 @@ public:
         cmd.linear.x = 0.0;
         cmd.angular.z = angular_vel;
         cmd_vel_pub_.publish(cmd);
+
+        // Debug info - print the command being sent
+        ROS_INFO_THROTTLE(1.0, "Sending rotation command: angular.z = %.2f", angular_vel);
     }
 
-    // Normalize angle to (-pi, pi)
+    // Normalize angle to [-π, π]
     double normalizeAngle(double angle)
     {
         while (angle > M_PI)
@@ -139,13 +140,6 @@ public:
         while (angle < -M_PI)
             angle += 2.0 * M_PI;
         return angle;
-    }
-
-    // Calculate the smallest angle difference between two angles
-    double getAngleDifference(double target, double current)
-    {
-        double diff = normalizeAngle(target - current);
-        return diff;
     }
 
     void executeCB(const msg_file::RotateGoalConstPtr &goal)
@@ -174,15 +168,22 @@ public:
             return;
         }
 
-        // Determine rotation direction
-        double rotate_speed = angular_speed_;
+        // Add small tolerance for completion
+        double angle_tolerance_deg = 2.0; // 2 degrees tolerance
+
+        // Set rotation speed based on direction
+        double rotate_speed;
         if (direction_ == "clockwise")
         {
-            rotate_speed = -rotate_speed; // Negative is clockwise for ROS
+            rotate_speed = -angular_speed_; // Negative for clockwise
+        }
+        else
+        {                                  // counterclockwise
+            rotate_speed = angular_speed_; // Positive for counterclockwise
         }
 
-        ROS_INFO("Rotate Server: Direction=%s, Angle=%.2f degrees",
-                 direction_.c_str(), target_angle_deg_);
+        ROS_INFO("Rotate Server: Direction=%s, Angle=%.2f degrees, Speed=%.2f",
+                 direction_.c_str(), target_angle_deg_, rotate_speed);
 
         // Wait until we receive odometry data
         ros::Time start_wait = ros::Time::now();
@@ -200,17 +201,21 @@ public:
             return;
         }
 
-        // Record initial yaw
-        initial_yaw_ = current_yaw_;
-        ROS_INFO("Initial yaw: %.2f degrees", initial_yaw_ * RAD_TO_DEG);
+        // Store initial orientation
+        double start_yaw = current_yaw_;
+        ROS_INFO("Initial orientation: %.2f degrees", start_yaw * RAD_TO_DEG);
 
         // Convert target angle to radians
         double target_angle_rad = target_angle_deg_ * DEG_TO_RAD;
 
-        // Initialize angle tracking
-        double angle_turned = 0.0;
-        double prev_yaw = initial_yaw_;
-        double total_rotated = 0.0; // Keep track of total rotation
+        // Start rotating
+        rotateRobot(rotate_speed);
+
+        // Store the previous yaw to calculate incremental changes
+        double prev_yaw = start_yaw;
+
+        // Accumulated angle turned (in radians)
+        double accumulated_angle = 0.0;
 
         // Main execution loop
         while (ros::ok())
@@ -225,46 +230,68 @@ public:
                 break;
             }
 
-            // Calculate how much we've rotated since last iteration
-            double delta_yaw = getAngleDifference(current_yaw_, prev_yaw);
+            // Calculate delta yaw (change in orientation since last iteration)
+            double delta_yaw = normalizeAngle(current_yaw_ - prev_yaw);
 
-            // Adjust delta based on direction to ensure it's counted correctly
-            if (direction_ == "clockwise" && delta_yaw > 0)
+            // Debug angle information
+            ROS_INFO("Current yaw: %.2f, Prev yaw: %.2f, Delta: %.2f",
+                     current_yaw_ * RAD_TO_DEG, prev_yaw * RAD_TO_DEG, delta_yaw * RAD_TO_DEG);
+
+            // Adjust delta based on direction to ensure proper accumulation
+            if (direction_ == "clockwise")
             {
-                delta_yaw = delta_yaw - 2 * M_PI;
+                // For clockwise, we want negative changes to add to our total
+                // If delta is positive (counterclockwise), it might be due to wraparound
+                if (delta_yaw > 0 && delta_yaw > M_PI_2)
+                {                            // Large positive jump (>90 deg)
+                    delta_yaw -= 2.0 * M_PI; // Convert to equivalent negative angle
+                }
+                // For clockwise, accumulate negative rotation (convert to positive)
+                if (delta_yaw < 0)
+                {
+                    accumulated_angle += -delta_yaw;
+                }
             }
-            else if (direction_ == "counterclockwise" && delta_yaw < 0)
-            {
-                delta_yaw = delta_yaw + 2 * M_PI;
+            else
+            { // counterclockwise
+                // For counterclockwise, we want positive changes to add to our total
+                // If delta is negative (clockwise), it might be due to wraparound
+                if (delta_yaw < 0 && delta_yaw < -M_PI_2)
+                {                            // Large negative jump (<-90 deg)
+                    delta_yaw += 2.0 * M_PI; // Convert to equivalent positive angle
+                }
+                // For counterclockwise, accumulate positive rotation
+                if (delta_yaw > 0)
+                {
+                    accumulated_angle += delta_yaw;
+                }
             }
 
-            // Update total rotation
-            total_rotated += fabs(delta_yaw);
-
-            // Update previous yaw for next iteration
+            // Store current orientation for next iteration
             prev_yaw = current_yaw_;
 
-            // Convert to degrees for feedback and logging
-            double degrees_turned = total_rotated * RAD_TO_DEG;
+            // Convert to degrees for feedback
+            double degrees_turned = accumulated_angle * RAD_TO_DEG;
 
             // Update feedback
             feedback_.current_angle = degrees_turned;
             as_.publishFeedback(feedback_);
 
             // Check if we've rotated enough
-            if (degrees_turned >= target_angle_deg_)
+            if (degrees_turned >= (target_angle_deg_ - angle_tolerance_deg))
             {
-                ROS_INFO("Rotation completed: %.2f degrees rotated", degrees_turned);
+                ROS_INFO("Rotation goal reached: %.2f degrees rotated (target: %.2f)",
+                         degrees_turned, target_angle_deg_);
                 success = true;
                 break;
             }
 
-            // Move the robot
-            rotateRobot(rotate_speed);
+            // Debug total rotation
+            ROS_INFO("Total rotation: %.2f degrees / %.2f degrees",
+                     degrees_turned, target_angle_deg_);
 
-            // Debug info
-            ROS_INFO_THROTTLE(0.5, "Current rotation: %.2f degrees, Target: %.2f degrees",
-                              degrees_turned, target_angle_deg_);
+            // Keep rotating the robot
+            rotateRobot(rotate_speed);
 
             r.sleep();
         }

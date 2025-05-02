@@ -11,10 +11,16 @@
             <Construction />    Construction mission node
             <LaneDetect mode="just-turn-left" duration="60.0" sign="right"/>
             <LaneDetect mode="center" duration="300.0" sign="tunnel"/>     -->
-            <!-- <TunnelNav mode="online"/> -->
-            <!-- <TunnelNav mode="online" map_path="{saved_map_path}"/> --> <!-- Tunnel navigation offline mode need map-->
             <Move mode="forward" until="right" distance="1.0"/>
+            <Move mode="forward" until="timer" distance="2.5"/>
             <Rotate direction="counterclockwise" angle="90.0"/>
+            <Move mode="forward" until="back" distance="0.2"/>
+            <Rotate direction="clockwise" angle="90.0"/>
+            <!-- <TunnelNav mode="online"/> -->
+            <TunnelNav mode="offline"/>
+            <Move mode="forward" until="front" distance="0.25"/>
+            <Rotate direction="counterclockwise" angle="90.0"/>
+            <Move mode="forward" until="timer" distance="5.0"/>
         </Sequence>
     </BehaviorTree>
 </root>

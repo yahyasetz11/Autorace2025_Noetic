@@ -73,14 +73,14 @@ public:
             YAML::Node config = YAML::LoadFile(config_path);
 
             // Extract linear speed
-            if (config["max_linear_speed"])
+            if (config["linear_speed"])
             {
-                linear_speed_ = config["max_linear_speed"].as<double>();
+                linear_speed_ = config["linear_speed"].as<double>();
                 ROS_INFO("Loaded linear_speed = %.2f from config file", linear_speed_);
             }
             else
             {
-                ROS_WARN("Could not find 'max_linear_speed' in config file, using default: %.2f", linear_speed_);
+                ROS_WARN("Could not find 'linear_speed' in config file, using default: %.2f", linear_speed_);
             }
         }
         catch (const std::exception &e)
@@ -251,9 +251,9 @@ public:
             return;
         }
 
-        if (until_ != "front" && until_ != "back" && until_ != "right" && until_ != "left")
+        if (until_ != "front" && until_ != "back" && until_ != "right" && until_ != "left" && until_ != "timer")
         {
-            ROS_ERROR("Invalid until direction: %s. Must be 'front', 'back', 'right', or 'left'", until_.c_str());
+            ROS_ERROR("Invalid until direction: %s. Must be 'front', 'back', 'right', 'left', or 'timer'", until_.c_str());
             result_.success = false;
             as_.setAborted(result_);
             return;
@@ -262,23 +262,35 @@ public:
         // Determine movement direction
         double move_speed = (mode_ == "forward") ? linear_speed_ : -linear_speed_;
 
-        ROS_INFO("Move Server: Mode=%s, Until=%s, Distance=%.2f",
+        ROS_INFO("Move Server: Mode=%s, Until=%s, Distance/Time=%.2f",
                  mode_.c_str(), until_.c_str(), distance_threshold_);
 
-        // Wait until we receive scan data
-        ros::Time start_time = ros::Time::now();
-        while (!scan_received_ && (ros::Time::now() - start_time).toSec() < 5.0)
+        // For timer mode, we don't need scan data
+        if (until_ != "timer")
         {
-            ROS_INFO_THROTTLE(1, "Waiting for scan data...");
-            r.sleep();
+            // Wait until we receive scan data
+            ros::Time start_time = ros::Time::now();
+            while (!scan_received_ && (ros::Time::now() - start_time).toSec() < 5.0)
+            {
+                ROS_INFO_THROTTLE(1, "Waiting for scan data...");
+                r.sleep();
+            }
+
+            if (!scan_received_)
+            {
+                ROS_ERROR("No scan data received after waiting 5 seconds!");
+                result_.success = false;
+                as_.setAborted(result_);
+                return;
+            }
         }
 
-        if (!scan_received_)
+        // Special case for timer-based movement
+        ros::Time timer_start;
+        if (until_ == "timer")
         {
-            ROS_ERROR("No scan data received after waiting 5 seconds!");
-            result_.success = false;
-            as_.setAborted(result_);
-            return;
+            timer_start = ros::Time::now();
+            ROS_INFO("Starting timer-based movement for %.2f seconds", distance_threshold_);
         }
 
         // Main execution loop
@@ -294,52 +306,76 @@ public:
                 break;
             }
 
-            // Get current distance
-            double current_distance = getDistanceInDirection(until_);
-
-            if (current_distance < 0)
+            // Check success condition based on mode
+            if (until_ == "timer")
             {
-                ROS_WARN_THROTTLE(1, "Unable to get valid distance data");
-                r.sleep();
-                continue;
-            }
+                // Timer-based condition
+                double elapsed_time = (ros::Time::now() - timer_start).toSec();
 
-            // Determine success condition based on mode and until direction
-            bool move_forward_until_back_front = (mode_ == "forward" && until_ == "back");
-            bool move_backward_until_front_back = (mode_ == "backward" && until_ == "front");
+                // Update feedback - for timer mode, use elapsed time as the "distance"
+                feedback_.current_distance = elapsed_time;
+                as_.publishFeedback(feedback_);
 
-            if (move_forward_until_back_front || move_backward_until_front_back)
-            {
-                // Special case with >= comparison
-                condition_met = (current_distance >= distance_threshold_);
+                if (elapsed_time >= distance_threshold_)
+                {
+                    ROS_INFO("Timer goal reached: %.2f seconds elapsed", elapsed_time);
+                    success = true;
+                    break;
+                }
+
+                // Debug info
+                ROS_INFO_THROTTLE(0.5, "Timer mode: %.2f / %.2f seconds elapsed",
+                                  elapsed_time, distance_threshold_);
             }
             else
             {
-                // Normal case with <= comparison
-                condition_met = (current_distance <= distance_threshold_);
-            }
+                // Distance-based condition
+                double current_distance = getDistanceInDirection(until_);
 
-            // Update feedback
-            feedback_.current_distance = current_distance;
-            as_.publishFeedback(feedback_);
+                if (current_distance < 0)
+                {
+                    ROS_WARN_THROTTLE(1, "Unable to get valid distance data");
+                    r.sleep();
+                    continue;
+                }
 
-            // Check if condition is met
-            if (condition_met)
-            {
-                ROS_INFO("Goal condition met: %s=%s distance %.2f %s %.2f",
-                         mode_.c_str(), until_.c_str(), current_distance,
-                         (move_forward_until_back_front || move_backward_until_front_back) ? ">=" : "<=",
-                         distance_threshold_);
-                success = true;
-                break;
+                // Determine success condition based on mode and until direction
+                bool move_forward_until_back_front = (mode_ == "forward" && until_ == "back");
+                bool move_backward_until_front_back = (mode_ == "backward" && until_ == "front");
+
+                if (move_forward_until_back_front || move_backward_until_front_back)
+                {
+                    // Special case with >= comparison
+                    condition_met = (current_distance >= distance_threshold_);
+                }
+                else
+                {
+                    // Normal case with <= comparison
+                    condition_met = (current_distance <= distance_threshold_);
+                }
+
+                // Update feedback
+                feedback_.current_distance = current_distance;
+                as_.publishFeedback(feedback_);
+
+                // Check if condition is met
+                if (condition_met)
+                {
+                    ROS_INFO("Goal condition met: %s=%s distance %.2f %s %.2f",
+                             mode_.c_str(), until_.c_str(), current_distance,
+                             (move_forward_until_back_front || move_backward_until_front_back) ? ">=" : "<=",
+                             distance_threshold_);
+                    success = true;
+                    break;
+                }
+
+                // Debug info
+                ROS_INFO_THROTTLE(0.5, "Current %s distance: %.2f, Threshold: %.2f",
+                                  until_.c_str(), current_distance, distance_threshold_);
             }
 
             // Move the robot
             moveRobot(move_speed);
-
-            // Debug info
-            ROS_INFO_THROTTLE(0.5, "Current %s distance: %.2f, Threshold: %.2f",
-                              until_.c_str(), current_distance, distance_threshold_);
 
             r.sleep();
         }
