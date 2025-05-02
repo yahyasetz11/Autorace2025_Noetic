@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<launch>
+  <!-- Arguments -->
+  <arg name="model" default="$(env TURTLEBOT3_MODEL)" doc="model type [burger, waffle, waffle_pi]"/>
+  <arg name="namespace" default="tunnel_nav" doc="namespace for the SLAM nodes"/>
+  <arg name="open_rviz" default="false" doc="open rviz for visualization"/>
+
+  <!-- SLAM: Gmapping -->
+  <node pkg="gmapping" type="slam_gmapping" name="turtlebot3_slam_gmapping" output="screen">
+    <param name="base_frame" value="base_footprint"/>
+    <param name="odom_frame" value="odom"/>
+    <param name="map_frame"  value="map"/>
+    <param name="map_update_interval" value="2.0"/>
+    <param name="maxUrange" value="3.0"/>
+    <param name="sigma" value="0.05"/>
+    <param name="kernelSize" value="1"/>
+    <param name="lstep" value="0.05"/>
+    <param name="astep" value="0.05"/>
+    <param name="iterations" value="5"/>
+    <param name="lsigma" value="0.075"/>
+    <param name="ogain" value="3.0"/>
+    <param name="lskip" value="0"/>
+    <param name="minimumScore" value="200"/>
+    <param name="srr" value="0.1"/>
+    <param name="srt" value="0.2"/>
+    <param name="str" value="0.1"/>
+    <param name="stt" value="0.2"/>
+    <param name="linearUpdate" value="1.0"/>
+    <param name="angularUpdate" value="0.2"/>
+    <param name="temporalUpdate" value="0.5"/>
+    <param name="resampleThreshold" value="0.5"/>
+    <param name="particles" value="100"/>
+    <param name="xmin" value="-10.0"/>
+    <param name="ymin" value="-10.0"/>
+    <param name="xmax" value="10.0"/>
+    <param name="ymax" value="10.0"/>
+    <param name="delta" value="0.05"/>
+    <param name="llsamplerange" value="0.01"/>
+    <param name="llsamplestep" value="0.01"/>
+    <param name="lasamplerange" value="0.005"/>
+    <param name="lasamplestep" value="0.005"/>
+  </node>
+
+  <!-- Wait for gmapping to initialize before launching move_base -->
+  <node pkg="rostopic" type="rostopic" name="wait_for_map" 
+        args="hz /map -w 1" output="screen" launch-prefix="bash -c 'sleep 5; $0 $@'"/>
+  
+  <!-- Launch move_base for navigation (after gmapping starts) -->
+  <include file="$(find turtlebot3_navigation)/launch/move_base.launch" launch-prefix="bash -c 'sleep 8; $0 $@'">
+    <arg name="model" value="$(arg model)"/>
+  </include>
+
+  <!-- Run Rviz (optional) -->
+  <group if="$(arg open_rviz)"> 
+    <node pkg="rviz" type="rviz" name="rviz" required="true"
+          args="-d $(find turtlebot3_slam)/rviz/turtlebot3_gmapping.rviz"/>
+  </group>
+</launch>

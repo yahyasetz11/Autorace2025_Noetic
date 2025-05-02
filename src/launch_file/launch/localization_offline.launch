@@ -1,0 +1,10 @@
+<launch>
+  <include file="$(find turtlebot3_navigation)/launch/turtlebot3_navigation.launch">
+    <arg name="map_file" value="$(arg map_file)"/>
+  </include>
+  
+  <!-- Override AMCL parameters -->
+  <param name="/amcl/initial_pose_x" value="YOUR_X_VALUE"/>
+  <param name="/amcl/initial_pose_y" value="YOUR_Y_VALUE"/>
+  <param name="/amcl/initial_pose_a" value="YOUR_ORIENTATION_IN_RADIANS"/>
+</launch>

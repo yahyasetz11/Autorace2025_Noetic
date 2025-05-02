@@ -14,7 +14,6 @@
 #include <boost/filesystem.hpp>
 #include <yaml-cpp/yaml.h>
 #include <ros/package.h>
-#include <cstdlib> // For system()
 
 class TunnelNavServer
 {
@@ -32,11 +31,9 @@ private:
     ros::Publisher cmd_vel_pub_;
     ros::Publisher initial_pose_pub_;
     ros::Publisher goal_pub_; // Publisher for move_base_simple/goal
-    ros::ServiceClient map_saver_client_;
 
     // State tracking
     bool wall_detected_;
-    bool slam_initialized_;
     bool navigation_started_;
     ros::Time start_time_;
     std::string current_mode_;
@@ -49,11 +46,6 @@ private:
     double wall_distance_threshold_;
     int wall_detection_angle;
     double initial_linear_speed;
-    double max_linear_speed;
-    double max_angular_speed;
-    std::string maps_folder_name;
-    std::string default_map_name;
-    bool map_save_enabled;
     double navigation_timeout;
 
     // Goal position tracking
@@ -63,28 +55,19 @@ private:
     // TF listener for position tracking
     tf::TransformListener tf_listener_;
 
-    // List of running processes
-    std::vector<std::string> running_processes_;
-
 public:
     TunnelNavServer(std::string name) : as_(nh_, name, boost::bind(&TunnelNavServer::executeCB, this, _1), false),
                                         action_name_(name),
                                         wall_detected_(false),
-                                        slam_initialized_(false),
                                         navigation_started_(false),
                                         goal_reached_(false),
                                         wall_distance_threshold_(0.5),
                                         wall_detection_angle(270),
                                         initial_linear_speed(0.2),
-                                        max_linear_speed(0.2),
-                                        max_angular_speed(1.0),
-                                        maps_folder_name("maps"),
-                                        default_map_name("tunnel_map"),
-                                        map_save_enabled(true),
                                         navigation_timeout(300.0)
     {
         // Load YAML configuration file
-        std::string config_path = ros::package::getPath("config") + "/tunnel_param.yaml";
+        std::string config_path = ros::package::getPath("action_bt") + "/../config/tunnel_param.yaml";
         ROS_INFO("Loading configuration from: %s", config_path.c_str());
 
         try
@@ -105,18 +88,6 @@ public:
                 // Velocity parameters
                 if (tunnel_config["initial_linear_speed"])
                     initial_linear_speed = tunnel_config["initial_linear_speed"].as<double>();
-                if (tunnel_config["max_linear_speed"])
-                    max_linear_speed = tunnel_config["max_linear_speed"].as<double>();
-                if (tunnel_config["max_angular_speed"])
-                    max_angular_speed = tunnel_config["max_angular_speed"].as<double>();
-
-                // Map parameters
-                if (tunnel_config["maps_folder"])
-                    maps_folder_name = tunnel_config["maps_folder"].as<std::string>();
-                if (tunnel_config["default_map_name"])
-                    default_map_name = tunnel_config["default_map_name"].as<std::string>();
-                if (tunnel_config["map_save_enabled"])
-                    map_save_enabled = tunnel_config["map_save_enabled"].as<bool>();
 
                 // Navigation parameters
                 if (tunnel_config["navigation_timeout"])
@@ -144,11 +115,6 @@ public:
         ROS_INFO("  wall_distance_threshold: %.2f m", wall_distance_threshold_);
         ROS_INFO("  wall_detection_angle: %d degrees", wall_detection_angle);
         ROS_INFO("  initial_linear_speed: %.2f m/s", initial_linear_speed);
-        ROS_INFO("  max_linear_speed: %.2f m/s", max_linear_speed);
-        ROS_INFO("  max_angular_speed: %.2f rad/s", max_angular_speed);
-        ROS_INFO("  maps_folder: %s", maps_folder_name.c_str());
-        ROS_INFO("  default_map_name: %s", default_map_name.c_str());
-        ROS_INFO("  map_save_enabled: %s", map_save_enabled ? "true" : "false");
         ROS_INFO("  navigation_timeout: %.2f s", navigation_timeout);
     }
 
@@ -156,8 +122,6 @@ public:
     {
         // Stop the robot
         stopRobot();
-
-        // No need to manually kill processes as they'll be managed by ROS
     }
 
     void laserCallback(const sensor_msgs::LaserScan::ConstPtr &scan)
@@ -208,60 +172,6 @@ public:
         cmd.linear.x = initial_linear_speed;
         cmd.angular.z = 0.0;
         cmd_vel_pub_.publish(cmd);
-    }
-
-    void launchProcess(const std::string &command)
-    {
-        ROS_INFO("Executing: %s", command.c_str());
-
-        // Use system() to run the command
-        int result = system(command.c_str());
-
-        if (result != 0)
-        {
-            ROS_WARN("Command execution returned non-zero status: %d", result);
-        }
-        else
-        {
-            // Keep track of running processes
-            running_processes_.push_back(command);
-        }
-    }
-
-    void initializeOnlineSLAM()
-    {
-        ROS_INFO("Initializing online SLAM mode");
-
-        // Launch gmapping
-        std::string gmapping_cmd = "roslaunch turtlebot3_slam turtlebot3_gmapping.launch";
-        launchProcess(gmapping_cmd);
-
-        // Launch move_base with the default turtlebot3 configuration
-        std::string move_base_cmd = "roslaunch turtlebot3_navigation move_base.launch";
-        launchProcess(move_base_cmd);
-
-        slam_initialized_ = true;
-        ros::Duration(2.0).sleep(); // Give time for nodes to start
-    }
-
-    void initializeOfflineSLAM(const std::string &map_file)
-    {
-        ROS_INFO("Initializing offline navigation mode with map: %s", map_file.c_str());
-
-        // Launch map server with the specified map
-        std::string map_server_cmd = "roslaunch turtlebot3_navigation map_server.launch map_file:=" + map_file;
-        launchProcess(map_server_cmd);
-
-        // Launch AMCL for localization
-        std::string amcl_cmd = "roslaunch turtlebot3_navigation amcl.launch";
-        launchProcess(amcl_cmd);
-
-        // Launch move_base
-        std::string move_base_cmd = "roslaunch turtlebot3_navigation move_base.launch";
-        launchProcess(move_base_cmd);
-
-        slam_initialized_ = true;
-        ros::Duration(2.0).sleep(); // Give time for nodes to start
     }
 
     void setInitialPose()
@@ -369,69 +279,40 @@ public:
         }
     }
 
-    std::string findNextMapFilename(const std::string &base_path)
+    // Check if TF frames are available
+    bool waitForTFFrames(double timeout = 30.0)
     {
-        // Get base filename from configuration
-        std::string base_name = default_map_name;
-        std::string extension = ".yaml";
-        std::string full_path = base_path + "/" + base_name + extension;
+        ROS_INFO("Waiting for TF frames to become available...");
+        ros::Time start = ros::Time::now();
 
-        // Check if the default name exists
-        int counter = 1;
-        while (boost::filesystem::exists(full_path))
+        while (ros::ok())
         {
-            full_path = base_path + "/" + base_name + "_" + std::to_string(counter) + extension;
-            counter++;
+            try
+            {
+                // Check if we can transform between base_footprint and map
+                if (tf_listener_.waitForTransform("map", "base_footprint", ros::Time(0), ros::Duration(1.0)))
+                {
+                    ROS_INFO("TF frames are available");
+                    return true;
+                }
+            }
+            catch (tf::TransformException &ex)
+            {
+                ROS_WARN_THROTTLE(5.0, "TF not available yet: %s", ex.what());
+            }
+
+            // Check for timeout
+            if ((ros::Time::now() - start).toSec() > timeout)
+            {
+                ROS_ERROR("Timed out waiting for TF frames after %.1f seconds", timeout);
+                return false;
+            }
+
+            ros::Duration(0.5).sleep();
+            ros::spinOnce();
         }
 
-        return full_path;
-    }
-
-    bool saveMap()
-    {
-        // Check if map saving is enabled from configuration
-        if (!map_save_enabled)
-        {
-            ROS_INFO("Map saving disabled by configuration");
-            return true;
-        }
-
-        ROS_INFO("Saving map...");
-
-        // Use maps folder from configuration
-        std::string maps_folder = ros::package::getPath("turtlebot3_navigation") + "/" + maps_folder_name;
-
-        // Create maps directory if it doesn't exist
-        boost::filesystem::create_directories(maps_folder);
-
-        // Get unique map filename
-        std::string map_filename = findNextMapFilename(maps_folder);
-
-        // Extract base filename without path and extension
-        size_t last_slash = map_filename.find_last_of("/");
-        size_t last_dot = map_filename.find_last_of(".");
-        std::string base_filename = map_filename.substr(
-            last_slash + 1,
-            last_dot - last_slash - 1);
-
-        // Call map_saver to save the map
-        std::string save_cmd = "rosrun map_server map_saver -f " +
-                               maps_folder + "/" + base_filename;
-
-        // Execute the command and wait for it to complete
-        int result = system(save_cmd.c_str());
-
-        if (result == 0)
-        {
-            ROS_INFO("Map saved successfully to: %s", map_filename.c_str());
-            result_.map_path = map_filename;
-            return true;
-        }
-        else
-        {
-            ROS_ERROR("Failed to save map, return code: %d", result);
-            return false;
-        }
+        return false;
     }
 
     void executeCB(const msg_file::TunnelNavGoalConstPtr &goal)
@@ -442,7 +323,6 @@ public:
 
         // Reset state flags
         wall_detected_ = false;
-        slam_initialized_ = false;
         navigation_started_ = false;
         goal_reached_ = false;
 
@@ -519,19 +399,24 @@ public:
         stopRobot();
         ROS_INFO("Wall detected on right side, stopping robot");
 
-        // PHASE 2: Initialize SLAM based on mode
-        ROS_INFO("Phase 2: Initializing SLAM/Navigation");
-        feedback_.current_state = "INITIALIZING_SLAM";
+        // PHASE 2: Verify that SLAM is running via the launch file
+        ROS_INFO("Phase 2: Verifying SLAM/Navigation is initialized via launch file");
+        feedback_.current_state = "VERIFYING_SLAM";
         as_.publishFeedback(feedback_);
 
-        if (current_mode_ == "online")
+        // Wait for TF frames to become available
+        if (!waitForTFFrames(45.0))
         {
-            initializeOnlineSLAM();
+            ROS_ERROR("Failed to verify SLAM initialization - TF frames not available");
+            as_.setAborted();
+            return;
         }
-        else
-        { // offline mode
-            initializeOfflineSLAM(map_file_path_);
-        }
+
+        feedback_.current_state = "SLAM_INITIALIZED";
+        as_.publishFeedback(feedback_);
+
+        // Brief pause to ensure navigation system is fully ready
+        ros::Duration(2.0).sleep();
 
         // PHASE 3: Set initial pose
         feedback_.current_state = "SETTING_INITIAL_POSE";
@@ -589,16 +474,19 @@ public:
             r.sleep();
         }
 
-        // PHASE 6: Save map if in online mode
-        if (success && current_mode_ == "online")
-        {
-            feedback_.current_state = "SAVING_MAP";
-            as_.publishFeedback(feedback_);
-            saveMap();
-        }
-
         // Set result
         result_.success = success;
+
+        // For online mode, we assume map is saved externally from the launch file
+        if (success && current_mode_ == "online")
+        {
+            // Just inform that map saving should be handled externally
+            ROS_INFO("Note: In online mode, map saving should be handled externally");
+
+            // Set a default map path for compatibility
+            std::string maps_folder = ros::package::getPath("turtlebot3_navigation") + "/maps";
+            result_.map_path = maps_folder + "/latest_tunnel_map.yaml";
+        }
 
         if (success)
         {
