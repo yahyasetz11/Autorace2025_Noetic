@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<launch>
-  <!-- Launch the lane detection action client -->
-  <node pkg="action_bt" type="lane_detect_client" name="lane_detect_client" output="screen">
-    <param name="detection_duration" value="10.0" />  <!-- Duration in seconds -->
-  </node>
-</launch>
