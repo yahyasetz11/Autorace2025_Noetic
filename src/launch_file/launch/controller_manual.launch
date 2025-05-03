@@ -1,18 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
 <launch>
-  <!-- Launch joystick driver -->
-  <node pkg="joy" type="joy_node" name="joy_node">
-    <param name="dev" value="/dev/input/js0" />
-    <param name="deadzone" value="0.1" />
-    <param name="autorepeat_rate" value="20.0" />
-  </node>
-  
-  <!-- Launch manual controller node -->
-  <node pkg="controller_manual" type="joy2vel" name="joy2vel" output="screen">
-    <param name="linear_scale" value="0.2" />  <!-- Max linear speed in m/s -->
-    <param name="angular_scale" value="1.0" /> <!-- Max angular speed in rad/s -->
-    <param name="linear_axis" value="1" />     <!-- Axis index for linear control (up/down) -->
-    <param name="angular_axis" value="0" />    <!-- Axis index for angular control (left/right) -->
-    <param name="deadzone" value="0.1" />      <!-- Joystick deadzone -->
-  </node>
+  <node pkg="joy" type="joy_node" name="joy_node"/>
+  <node pkg="controller_manual" type="joy2vel" name="joy2vel" output="screen"/>
 </launch>
