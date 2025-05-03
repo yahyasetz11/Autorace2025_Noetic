@@ -18,6 +18,7 @@
                 <LaneDetect mode="center" duration="0.75" sign=""/>
                 <LaneDetect mode="just-turn-left" duration="60.0" sign="left"/>    
                 <Parking mode="dynamic"/>
+                <!-- <Parking mode="left"/> -->
                 <LaneDetect mode="just-turn-left" duration="60.0" sign="left"/>
             </Sequence>
 

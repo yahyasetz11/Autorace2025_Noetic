@@ -286,36 +286,49 @@ public:
             return false;
         }
 
-        // Create mask for white lines
+        // Create a more robust white mask with wider thresholds
         cv::Mat white_mask;
-        cv::Scalar lower_white = cv::Scalar(hue_white_l_, saturation_white_l_, value_white_l_);
-        cv::Scalar upper_white = cv::Scalar(hue_white_h_, saturation_white_h_, value_white_h_);
+        // Widen the thresholds a bit to be more tolerant
+        cv::Scalar lower_white = cv::Scalar(hue_white_l_, saturation_white_l_, value_white_l_ - 10); // Lower value threshold
+        cv::Scalar upper_white = cv::Scalar(hue_white_h_, saturation_white_h_ + 20, value_white_h_); // Higher saturation
         cv::inRange(img_hsv_, lower_white, upper_white, white_mask);
 
-        // Apply ROI mask - focus on very bottom part of image
+        // Apply ROI mask - make it wider to detect from different angles
         int height = white_mask.rows;
         int width = white_mask.cols;
-        int roi_height = height / 5; // Changed to focus more on bottom
+        int roi_height = height / 4; // 25% of image height
         int roi_y = height - roi_height;
 
+        // Using a wider ROI (1/2 the width to 3/4 the width)
         cv::Mat roi_mask = cv::Mat::zeros(height, width, CV_8UC1);
-        cv::rectangle(roi_mask, cv::Rect(width / 4, roi_y, width / 2, roi_height), cv::Scalar(255), -1);
+        cv::rectangle(roi_mask, cv::Rect(width / 8, roi_y, width * 3 / 4, roi_height), cv::Scalar(255), -1);
         cv::bitwise_and(white_mask, roi_mask, white_mask);
 
-        // Process white mask
+        // Better noise removal
         cv::GaussianBlur(white_mask, white_mask, cv::Size(5, 5), 0);
 
-        // Use connected components to check for broken/dashed lines
+        // Morphological operations to help identify dashed lines
+        cv::Mat kernel = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3));
+        cv::morphologyEx(white_mask, white_mask, cv::MORPH_OPEN, kernel);
+
+        // Multiple detection approaches for robustness
+
+        // 1. Check for white pixel density in the ROI
+        int white_pixels = cv::countNonZero(white_mask);
+        int roi_area = roi_height * width * 3 / 4;
+        double white_density = (double)white_pixels / roi_area;
+
+        // 2. Use connected components to check for broken/dashed lines
         std::vector<std::vector<cv::Point>> contours;
         cv::findContours(white_mask, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
 
-        // Filter by size and count small components (dashed lines should have multiple small segments)
+        // Count components of suitable size for dashed lines
         int dashed_segments = 0;
         for (const auto &contour : contours)
         {
             double area = cv::contourArea(contour);
-            if (area > 20 && area < 500)
-            { // Adjusted for dashed line segments
+            if (area > 20 && area < 800)
+            { // Wider size range
                 dashed_segments++;
 
                 // Draw contours
@@ -327,21 +340,65 @@ public:
             }
         }
 
-        bool dashed_line_detected = dashed_segments >= 2; // At least 2 segments to be a dashed line
+        // 3. Use Hough Lines to detect line segments
+        std::vector<cv::Vec4i> lines;
+        cv::HoughLinesP(white_mask, lines, 1, CV_PI / 180, 30, 20, 10); // More sensitive parameters
+
+        int horizontal_line_segments = 0;
+        for (const auto &line : lines)
+        {
+            double angle = atan2(line[3] - line[1], line[2] - line[0]) * 180.0 / CV_PI;
+            if (fabs(angle) < 30)
+            { // Horizontal-ish
+                horizontal_line_segments++;
+
+                // Draw lines
+                if (debug_img.data)
+                {
+                    cv::line(debug_img, cv::Point(line[0], line[1]), cv::Point(line[2], line[3]),
+                             cv::Scalar(0, 255, 255), 2);
+                }
+            }
+        }
+
+        // Combine detection methods for a more robust decision
+        bool dashed_line_detected = false;
+
+        if ((white_density > 0.05 && white_density < 0.25) || // Moderate white density
+            dashed_segments >= 2 ||                           // Multiple segments
+            horizontal_line_segments >= 2)
+        { // Multiple horizontal lines
+            dashed_line_detected = true;
+        }
+
         white_dashed_line_detected_ = dashed_line_detected;
 
-        // Visualization
+        // Enhanced visualization
         if (debug_img.data)
         {
             // Draw ROI
-            cv::rectangle(debug_img, cv::Rect(width / 4, roi_y, width / 2, roi_height),
+            cv::rectangle(debug_img, cv::Rect(width / 8, roi_y, width * 3 / 4, roi_height),
                           cv::Scalar(0, 0, 255), 2);
 
-            // Add text about detection
-            std::string line_text = "Dashed Line: " + std::string(dashed_line_detected ? "DETECTED" : "NOT DETECTED") +
-                                    " (" + std::to_string(dashed_segments) + " segments)";
+            // Add detailed text about detection
+            std::string line_text = "Dashed Line: " + std::string(dashed_line_detected ? "DETECTED" : "NOT DETECTED");
             cv::putText(debug_img, line_text, cv::Point(10, 60),
                         cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 255, 255), 2);
+
+            std::string density_text = "Density: " + std::to_string(white_density).substr(0, 5);
+            cv::putText(debug_img, density_text, cv::Point(10, 90),
+                        cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(255, 255, 255), 2);
+
+            std::string segments_text = "Segments: " + std::to_string(dashed_segments);
+            cv::putText(debug_img, segments_text, cv::Point(10, 120),
+                        cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(255, 255, 255), 2);
+
+            // Show white mask in corner
+            cv::Mat white_viz;
+            cv::cvtColor(white_mask, white_viz, cv::COLOR_GRAY2BGR);
+            cv::Mat small_white;
+            cv::resize(white_viz, small_white, cv::Size(width / 4, height / 4));
+            debug_img(cv::Rect(width * 3 / 4, 0, width / 4, height / 4)) = small_white * 0.7;
         }
 
         return dashed_line_detected;
@@ -593,7 +650,7 @@ public:
             angular_speed = -angular_speed;
 
         // Convert angle to radians
-        double angle_rad = fabs(angle) * M_PI * 1.2 / 180.0;
+        double angle_rad = fabs(angle) * M_PI * 1.1 / 180.0;
 
         // Set the angular speed
         cmd.angular.z = angular_speed;
@@ -658,27 +715,36 @@ public:
     {
         ROS_INFO("Executing parking move for %s side", direction.c_str());
 
-        // 1. Rotate based on direction (90 degrees)
-        double angle = 90.0; // Left rotation
+        // Instead of separate rotation and forward movement,
+        // we'll apply both linear and angular velocities simultaneously
+
+        double angular_velocity = rotation_speed_;
         if (direction == "right")
         {
-            angle = -90.0; // Right rotation
+            angular_velocity = -rotation_speed_; // Negative for right turn
         }
 
-        rotate(angle);
-
-        // 2. Move forward until detecting border line
+        // Setup for border detection
         cv::Mat debug_img;
-        ros::Rate rate(10); // 10 Hz
-        double moved_distance = 0.0;
-        double step_distance = 0.05; // Move in small increments
-
+        ros::Rate rate(20); // 20 Hz for more responsive detection
         border_line_detected_ = false;
 
-        ROS_INFO("Moving forward until detecting border line");
+        // Keep track of accumulated angle to know when we've reached ~90 degrees
+        double start_time = ros::Time::now().toSec();
+        double current_time = start_time;
+        double angle_moved = 0.0;         // In radians
+        double target_angle = M_PI / 2.0; // 90 degrees in radians
 
-        while (ros::ok() && !border_line_detected_ && moved_distance < parking_forward_distance_)
+        ROS_INFO("Starting curved parking maneuver");
+
+        // Motion continues until either:
+        // 1. Border line detected, or
+        // 2. We've rotated approximately 90 degrees
+        while (ros::ok() && !border_line_detected_ && angle_moved < target_angle)
         {
+            // Process incoming messages
+            ros::spinOnce();
+
             // Check for border line
             if (image_received_)
             {
@@ -690,30 +756,78 @@ public:
                 cv::waitKey(1);
             }
 
-            // Move forward a small step
+            // Calculate current angle moved
+            current_time = ros::Time::now().toSec();
+            double elapsed_time = current_time - start_time;
+            angle_moved = fabs(angular_velocity) * elapsed_time;
+
+            // Adjust linear velocity as we turn - start faster, slow down as we approach 90 degrees
+            double progress = angle_moved / target_angle; // 0.0 to 1.0
+            double linear_velocity = forward_speed_ * (1.0 - 0.7 * progress);
+
+            // Create and send curved motion command
             geometry_msgs::Twist cmd;
-            cmd.linear.x = forward_speed_;
-            cmd.angular.z = 0.0;
+            cmd.linear.x = linear_velocity;
+            cmd.angular.z = angular_velocity;
             cmd_vel_pub_.publish(cmd);
 
-            moved_distance += step_distance;
-            ros::spinOnce();
+            // Log progress
+            if (int(elapsed_time * 2) % 2 == 0)
+            { // Log every ~0.5 seconds
+                ROS_INFO_THROTTLE(0.5, "Progress: %.2f%%, Angle: %.1f degrees, Linear: %.2f m/s",
+                                  progress * 100.0, angle_moved * 180.0 / M_PI, linear_velocity);
+            }
+
             rate.sleep();
         }
 
-        // Stop after reaching border or maximum distance
+        // Stop robot
         stopRobot();
 
+        // If stopped due to border detection
         if (border_line_detected_)
         {
-            ROS_INFO("Border line detected, stopping forward movement");
+            ROS_INFO("Border line detected, stopping curved motion");
         }
         else
         {
-            ROS_INFO("Reached maximum parking distance");
+            ROS_INFO("Completed ~90 degree turn with curved trajectory");
         }
 
-        // 3. Wait in parking spot
+        // If we haven't seen a border line yet, move forward a bit more
+        if (!border_line_detected_)
+        {
+            ROS_INFO("No border detected during curved motion, moving forward a bit more");
+            double moved_distance = 0.0;
+            double step_distance = 0.05;
+            double max_forward_distance = 0.3;
+
+            while (ros::ok() && !border_line_detected_ && moved_distance < max_forward_distance)
+            {
+                // Check for border line
+                ros::spinOnce();
+                if (image_received_)
+                {
+                    debug_img = img_bgr_.clone();
+                    detectBorderLine(debug_img);
+                    cv::imshow("Parking Debug", debug_img);
+                    cv::waitKey(1);
+                }
+
+                // Move forward
+                geometry_msgs::Twist cmd;
+                cmd.linear.x = forward_speed_ * 0.7; // Reduced speed
+                cmd.angular.z = 0.0;
+                cmd_vel_pub_.publish(cmd);
+
+                moved_distance += step_distance;
+                rate.sleep();
+            }
+
+            stopRobot();
+        }
+
+        // Wait in parking spot
         ROS_INFO("Waiting in parking spot for %.1f seconds", sleep_time_);
         ros::Duration(sleep_time_).sleep();
     }
@@ -829,108 +943,146 @@ public:
     {
         ROS_INFO("Executing get_out maneuver");
 
+        // CRUCIAL: Reset detection flags to avoid false positives from previous steps
+        white_dashed_line_detected_ = false;
+
+        // Force a small delay before starting backward movement to ensure
+        // camera frames and sensor readings refresh
+        ros::Duration(1.0).sleep();
+        ros::spinOnce();
+
+        ROS_INFO("Starting backward movement to find dashed line");
+
         // 1. Move backward until detecting the dashed line
         cv::Mat debug_img;
         double moved_distance = 0.0;
-        double step_distance = 0.05;       // Move in small increments
-        double max_backing_distance = 0.7; // Increased from 0.5 to 0.7
+        double step_distance = 0.05; // Move in small increments
+        double max_backing_distance = 0.7;
 
-        white_dashed_line_detected_ = false; // Reset detection flag
-
-        // Clear any cached detections
-        ros::spinOnce();
+        // Use a reasonable but conservative backward speed
+        double safe_backward_speed = 0.1;
 
         ros::Rate rate(10); // 10 Hz
-        ROS_INFO("Moving backward until detecting dashed line");
 
+        // Debug output
+        ROS_INFO("Initial state - white_dashed_line_detected_: %s",
+                 white_dashed_line_detected_ ? "TRUE" : "FALSE");
+
+        // Main backward movement loop
         while (ros::ok() && !white_dashed_line_detected_ && moved_distance < max_backing_distance)
         {
+            // Process any waiting messages to get updated sensor data
+            ros::spinOnce();
+
             // Check for dashed white line
             if (image_received_)
             {
                 debug_img = img_bgr_.clone();
-                detectWhiteDashedLine(debug_img);
+
+                // Clear indication of current phase
+                cv::putText(debug_img, "PHASE: BACKING UP", cv::Point(10, 30),
+                            cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 0, 255), 2);
+
+                // Log the moved distance
+                std::string dist_text = "Moved: " + std::to_string(moved_distance) + " m";
+                cv::putText(debug_img, dist_text, cv::Point(10, 60),
+                            cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(255, 255, 255), 2);
+
+                // Check for dashed line
+                white_dashed_line_detected_ = detectWhiteDashedLine(debug_img);
+
+                if (white_dashed_line_detected_)
+                {
+                    ROS_INFO("Dashed line detected during backup at distance %.2f m", moved_distance);
+                    stopRobot();
+                    break;
+                }
 
                 // Display debug image
                 cv::imshow("Parking Debug", debug_img);
                 cv::waitKey(1);
             }
 
-            // Move backward a small step
+            // Explicitly create a backward movement command
             geometry_msgs::Twist cmd;
-            cmd.linear.x = -backward_speed_;
+            cmd.linear.x = -safe_backward_speed; // Negative for reverse
             cmd.angular.z = 0.0;
+
+            // Logging for velocity
+            ROS_INFO_THROTTLE(1.0, "Moving backward at %.2f m/s, moved %.2f m",
+                              safe_backward_speed, moved_distance);
+
+            // Publish command
             cmd_vel_pub_.publish(cmd);
 
             moved_distance += step_distance;
-            ros::spinOnce();
             rate.sleep();
         }
 
-        // Stop after reaching dashed line or maximum distance
+        // Guarantee full stop after backing up
         stopRobot();
+        ros::Duration(0.5).sleep();
 
         if (white_dashed_line_detected_)
         {
-            ROS_INFO("Dashed line detected, stopping backward movement");
+            ROS_INFO("Successfully detected dashed line after backing up %.2f meters", moved_distance);
         }
         else
         {
-            ROS_INFO("Reached maximum backing distance");
+            ROS_WARN("Reached maximum backing distance (%.2f m) without finding dashed line",
+                     max_backing_distance);
         }
 
-        // 2. If dashed line was not detected, move a bit further backward
-        if (!white_dashed_line_detected_)
-        {
-            ROS_INFO("No dashed line detected, moving additional distance backward");
-            moveBackward(0.2); // Move 20 cm more
-        }
-
-        // 3. Rotate back (same direction of the parking move)
-        double angle = 90.0; // Default rotation (right)
+        // 2. Rotate back (opposite direction of the parking move)
+        double angle = -90.0; // Default rotation (right)
         if (current_mode_ == "right" ||
             (current_mode_ == "dynamic" && obstacle_left_ && !obstacle_right_))
         {
-            angle = -90.0; // Rotate right to exit right-side parking
+            angle = 90.0; // Rotate left to exit right-side parking
         }
 
+        ROS_INFO("Rotating %.1f degrees to exit parking spot", angle);
         rotate(angle);
 
-        // 4. Move forward until detecting yellow lanes
-        ROS_INFO("Moving forward until detecting yellow lanes");
+        // 3. Move forward until detecting yellow lanes
+        ROS_INFO("Moving forward to find yellow lanes");
         yellow_lanes_detected_ = false; // Reset detection flag
 
         moved_distance = 0.0;
         double max_forward_distance = 1.0; // Maximum distance to move forward
 
-        // Clear any cached detections
-        ros::spinOnce();
-
         while (ros::ok() && !yellow_lanes_detected_ && moved_distance < max_forward_distance)
         {
+            // Get latest camera data
+            ros::spinOnce();
+
             // Check for yellow lanes
             if (image_received_)
             {
                 debug_img = img_bgr_.clone();
-                detectYellowLanes(debug_img);
+
+                // Clear indication of current phase
+                cv::putText(debug_img, "PHASE: EXITING", cv::Point(10, 30),
+                            cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 255, 0), 2);
+
+                yellow_lanes_detected_ = detectYellowLanes(debug_img);
 
                 // Display debug image
                 cv::imshow("Parking Debug", debug_img);
                 cv::waitKey(1);
             }
 
-            // Move forward a small step
+            // Move forward
             geometry_msgs::Twist cmd;
             cmd.linear.x = forward_speed_;
             cmd.angular.z = 0.0;
             cmd_vel_pub_.publish(cmd);
 
             moved_distance += step_distance;
-            ros::spinOnce();
             rate.sleep();
         }
 
-        // Stop after finding yellow lanes or reaching maximum distance
+        // Stop at the end
         stopRobot();
 
         if (yellow_lanes_detected_)
@@ -969,6 +1121,10 @@ public:
 
         ROS_INFO("ParkingServer: Starting mission with mode=%s", current_mode_.c_str());
 
+        // Add timeout for detection
+        ros::Time start_detection_time = ros::Time::now();
+        double max_detection_time = 30.0; // 30 seconds timeout
+
         // Main execution flow
         if (current_mode_ == "dynamic")
         {
@@ -984,6 +1140,14 @@ public:
                     ROS_INFO("%s: Preempted", action_name_.c_str());
                     as_.setPreempted();
                     success = false;
+                    break;
+                }
+
+                // Check for timeout
+                if ((ros::Time::now() - start_detection_time).toSec() > max_detection_time)
+                {
+                    ROS_WARN("Timed out waiting for obstacle detection. Proceeding anyway.");
+                    obstacles_detected = true; // Force to proceed
                     break;
                 }
 
@@ -1054,6 +1218,17 @@ public:
                     break;
                 }
 
+                // Check for timeout
+                if ((ros::Time::now() - start_detection_time).toSec() > max_detection_time)
+                {
+                    ROS_WARN("Timed out waiting for dashed line detection. Proceeding with parking anyway.");
+                    dashed_line_detected = true; // Force to proceed
+                    break;
+                }
+
+                // Process messages to get latest data
+                ros::spinOnce();
+
                 // Create debug image
                 cv::Mat debug_img;
                 if (image_received_)
@@ -1063,39 +1238,43 @@ public:
                     // Display current mode
                     cv::putText(debug_img, "Mode: " + current_mode_, cv::Point(10, 30),
                                 cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 255, 0), 2);
-                }
 
-                // Check for dashed white line
-                if (detectWhiteDashedLine(debug_img))
-                {
-                    dashed_line_detected = true;
-                    ROS_INFO("Dashed line detected, starting parking maneuver");
-                    stopRobot();
-                }
-                else
-                {
-                    // Continue following center lane
-                    followCenterLane(debug_img);
-                }
+                    // IMPORTANT: Always check for dashed line
+                    dashed_line_detected = detectWhiteDashedLine(debug_img);
 
-                // Show debug image
-                if (image_received_)
-                {
+                    if (dashed_line_detected)
+                    {
+                        ROS_INFO("DASHED LINE DETECTED! Stopping to begin parking.");
+                        stopRobot();
+                        // Add a small pause to stabilize
+                        ros::Duration(0.5).sleep();
+                    }
+
+                    // Show debug image
                     cv::imshow("Parking Debug", debug_img);
                     cv::waitKey(1);
+                }
+
+                // Continue following center lane if no dashed line detected
+                if (!dashed_line_detected)
+                {
+                    followCenterLane(debug_img);
                 }
 
                 // Calculate time elapsed for feedback
                 feedback_.time_elapsed = (ros::Time::now() - start_time_).toSec();
                 as_.publishFeedback(feedback_);
 
-                ros::spinOnce();
                 r.sleep();
             }
 
+            // Make sure to stop before proceeding to parking
+            stopRobot();
+            ros::Duration(0.5).sleep();
+
             // Phase 2: Execute fixed direction parking
-            if (dashed_line_detected && success)
-            {
+            if (success)
+            { // Only check success, we'll proceed whether dashed line was detected or not
                 ROS_INFO("Phase 2: Executing %s parking", current_mode_.c_str());
                 parking_move(current_mode_);
 
