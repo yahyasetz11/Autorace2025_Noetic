@@ -57,6 +57,10 @@ add_executable(rotate_server src/rotate_server.cpp)
 target_link_libraries(rotate_server ${catkin_LIBRARIES} ${YAML_CPP_LIBRARIES})
 add_dependencies(rotate_server ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
+add_executable(align_server src/align_server.cpp)
+target_link_libraries(align_server ${catkin_LIBRARIES} ${YAML_CPP_LIBRARIES})
+add_dependencies(align_server ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+
 
 # Install targets
 install(TARGETS 
@@ -65,6 +69,7 @@ install(TARGETS
   tunnel_nav_server
   move_server 
   rotate_server
+  align_server
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

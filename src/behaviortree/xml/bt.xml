@@ -8,19 +8,25 @@
             <LaneDetect mode="center" duration="3.0" sign=""/>
             <LaneDetect mode="just-turn-left" duration="60.0" sign="right"/>   
 
-            <Construction />    Construction mission node
+            <Construction/> 
             <LaneDetect mode="just-turn-left" duration="60.0" sign="right"/>
             <LaneDetect mode="center" duration="300.0" sign="tunnel"/>     -->
-            <Move mode="forward" until="right" distance="1.0"/>
+            <!-- <Parking move="Left"> -->
+            <!-- <Parking move="Right"> -->
+
+            <!-- <Move mode="forward" until="right" distance="1.0"/>
             <Move mode="forward" until="timer" distance="2.5"/>
             <Rotate direction="counterclockwise" angle="90.0"/>
-            <Move mode="forward" until="back" distance="0.2"/>
-            <Rotate direction="clockwise" angle="90.0"/>
+            <Move mode="forward" until="back" distance="0.35"/>
+            <Rotate direction="counterclockwise" angle="90.0"/> 
+            <Move mode="forward" until="front" distance="0.15"/>
+            <Rotate direction="clockwise" angle="90.0"/> -->
+            <Align by="left"/>
             <!-- <TunnelNav mode="online"/> -->
-            <TunnelNav mode="offline"/>
-            <Move mode="forward" until="front" distance="0.25"/>
-            <Rotate direction="counterclockwise" angle="90.0"/>
-            <Move mode="forward" until="timer" distance="5.0"/>
+            <!-- <TunnelNav mode="offline"/> -->
+            <!-- <Move mode="forward" until="front" distance="0.25"/> -->
+            <!-- <Rotate direction="counterclockwise" angle="90.0"/> -->
+            <!-- <Move mode="forward" until="timer" distance="5.0"/> -->
         </Sequence>
     </BehaviorTree>
 </root>

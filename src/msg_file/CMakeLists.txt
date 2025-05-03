@@ -28,6 +28,7 @@ add_action_files(
   TunnelNav.action
   Move.action
   Rotate.action
+  Align.action
 )
 
 ## Generate added messages and services

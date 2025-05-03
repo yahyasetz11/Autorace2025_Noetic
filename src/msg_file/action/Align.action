@@ -1,0 +1,9 @@
+# Goal
+string by    # Direction to align: "right", "left", "front", "back"
+---
+# Result
+bool success       # Whether alignment succeeded
+---
+# Feedback
+float32 time_elapsed  # Time elapsed since start
+float32 current_error # Current alignment error
