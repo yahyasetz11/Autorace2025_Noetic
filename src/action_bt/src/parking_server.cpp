@@ -56,6 +56,16 @@ private:
     bool white_dashed_line_detected_;
     bool border_line_detected_;
     bool yellow_lanes_detected_;
+    int border_line_white_area_;
+    bool border_area_initialized_;
+
+    int border_roi_height_factor_;
+    int border_roi_y_factor_;
+    int dashed_roi_height_factor_;
+    int dashed_roi_width_factor_;
+    int min_dashed_area_;
+    double max_dashed_area_factor_;
+    int min_dashed_segments_;
 
     // Laser scan data
     sensor_msgs::LaserScan latest_scan_;
@@ -92,6 +102,14 @@ public:
         nh_.param<int>("/parking/saturation_white_h", saturation_white_h_, 70);
         nh_.param<int>("/parking/value_white_l", value_white_l_, 165);
         nh_.param<int>("/parking/value_white_h", value_white_h_, 255);
+
+        nh_.param<int>("/parking/border_roi_height_factor", border_roi_height_factor_, 6);
+        nh_.param<int>("/parking/border_roi_y_factor", border_roi_y_factor_, 2);
+        nh_.param<int>("/parking/dashed_roi_height_factor", dashed_roi_height_factor_, 5);
+        nh_.param<int>("/parking/dashed_roi_width_factor", dashed_roi_width_factor_, 6);
+        nh_.param<int>("/parking/min_dashed_area", min_dashed_area_, 200);
+        nh_.param<double>("/parking/max_dashed_area_factor", max_dashed_area_factor_, 0.7);
+        nh_.param<int>("/parking/min_dashed_segments", min_dashed_segments_, 2);
 
         // Publishers
         cmd_vel_pub_ = nh_.advertise<geometry_msgs::Twist>("/cmd_vel", 10);
@@ -286,112 +304,115 @@ public:
             return false;
         }
 
-        // Create a more robust white mask with wider thresholds
+        // Create a white mask with thresholds
         cv::Mat white_mask;
-        // Widen the thresholds a bit to be more tolerant
-        cv::Scalar lower_white = cv::Scalar(hue_white_l_, saturation_white_l_, value_white_l_ - 10); // Lower value threshold
-        cv::Scalar upper_white = cv::Scalar(hue_white_h_, saturation_white_h_ + 20, value_white_h_); // Higher saturation
+        cv::Scalar lower_white = cv::Scalar(hue_white_l_, saturation_white_l_, value_white_l_ - 10);
+        cv::Scalar upper_white = cv::Scalar(hue_white_h_, saturation_white_h_ + 20, value_white_h_);
         cv::inRange(img_hsv_, lower_white, upper_white, white_mask);
 
-        // Apply ROI mask - make it wider to detect from different angles
+        // Apply ROI mask using configurable parameters
         int height = white_mask.rows;
         int width = white_mask.cols;
-        int roi_height = height / 4; // 25% of image height
-        int roi_y = height - roi_height;
+        // Calculate ROI dimensions from factors
+        int roi_height = height / dashed_roi_height_factor_;
+        int roi_y = height - roi_height; // Very bottom of image
+        int roi_width = width * (dashed_roi_width_factor_ - 2) / dashed_roi_width_factor_;
+        int roi_x = width / dashed_roi_width_factor_;
 
-        // Using a wider ROI (1/2 the width to 3/4 the width)
+        // Using a centered ROI
         cv::Mat roi_mask = cv::Mat::zeros(height, width, CV_8UC1);
-        cv::rectangle(roi_mask, cv::Rect(width / 8, roi_y, width * 3 / 4, roi_height), cv::Scalar(255), -1);
+        cv::rectangle(roi_mask, cv::Rect(roi_x, roi_y, roi_width, roi_height), cv::Scalar(255), -1);
         cv::bitwise_and(white_mask, roi_mask, white_mask);
 
-        // Better noise removal
+        // Apply image processing
         cv::GaussianBlur(white_mask, white_mask, cv::Size(5, 5), 0);
-
-        // Morphological operations to help identify dashed lines
         cv::Mat kernel = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3));
         cv::morphologyEx(white_mask, white_mask, cv::MORPH_OPEN, kernel);
 
-        // Multiple detection approaches for robustness
+        // Count white pixels in the ROI
+        int white_pixel_count = cv::countNonZero(white_mask);
 
-        // 1. Check for white pixel density in the ROI
-        int white_pixels = cv::countNonZero(white_mask);
-        int roi_area = roi_height * width * 3 / 4;
-        double white_density = (double)white_pixels / roi_area;
+        // Calculate the maximum area as a percentage of border line area
+        // If border area isn't initialized yet, use a default maximum
+        int MAX_DASHED_AREA;
+        if (border_area_initialized_)
+        {
+            MAX_DASHED_AREA = border_line_white_area_ * max_dashed_area_factor_;
+        }
+        else
+        {
+            MAX_DASHED_AREA = 2000; // Default maximum if no border detected yet
+        }
 
-        // 2. Use connected components to check for broken/dashed lines
+        // Check if white area is within dashed line range
+        bool area_in_range = (white_pixel_count >= min_dashed_area_ && white_pixel_count <= MAX_DASHED_AREA);
+
+        // Additional check: look for segmented appearance using contours
         std::vector<std::vector<cv::Point>> contours;
         cv::findContours(white_mask, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
 
-        // Count components of suitable size for dashed lines
-        int dashed_segments = 0;
+        // Count segments of reasonable size
+        int valid_segments = 0;
         for (const auto &contour : contours)
         {
             double area = cv::contourArea(contour);
             if (area > 20 && area < 800)
-            { // Wider size range
-                dashed_segments++;
+            {
+                valid_segments++;
 
-                // Draw contours
+                // Draw contours for debugging
                 if (debug_img.data)
                 {
                     cv::drawContours(debug_img, std::vector<std::vector<cv::Point>>{contour}, 0,
-                                     cv::Scalar(0, 0, 255), 2);
+                                     cv::Scalar(0, 255, 0), 2);
                 }
             }
         }
 
-        // 3. Use Hough Lines to detect line segments
-        std::vector<cv::Vec4i> lines;
-        cv::HoughLinesP(white_mask, lines, 1, CV_PI / 180, 30, 20, 10); // More sensitive parameters
+        // Check if we have enough segments
+        bool has_segments = valid_segments >= min_dashed_segments_;
 
-        int horizontal_line_segments = 0;
-        for (const auto &line : lines)
-        {
-            double angle = atan2(line[3] - line[1], line[2] - line[0]) * 180.0 / CV_PI;
-            if (fabs(angle) < 30)
-            { // Horizontal-ish
-                horizontal_line_segments++;
-
-                // Draw lines
-                if (debug_img.data)
-                {
-                    cv::line(debug_img, cv::Point(line[0], line[1]), cv::Point(line[2], line[3]),
-                             cv::Scalar(0, 255, 255), 2);
-                }
-            }
-        }
-
-        // Combine detection methods for a more robust decision
-        bool dashed_line_detected = false;
-
-        if ((white_density > 0.05 && white_density < 0.25) || // Moderate white density
-            dashed_segments >= 2 ||                           // Multiple segments
-            horizontal_line_segments >= 2)
-        { // Multiple horizontal lines
-            dashed_line_detected = true;
-        }
-
+        // Determine if this is a dashed line based on area AND segmentation
+        bool dashed_line_detected = area_in_range && has_segments;
         white_dashed_line_detected_ = dashed_line_detected;
 
         // Enhanced visualization
         if (debug_img.data)
         {
             // Draw ROI
-            cv::rectangle(debug_img, cv::Rect(width / 8, roi_y, width * 3 / 4, roi_height),
+            cv::rectangle(debug_img, cv::Rect(roi_x, roi_y, roi_width, roi_height),
                           cv::Scalar(0, 0, 255), 2);
 
             // Add detailed text about detection
             std::string line_text = "Dashed Line: " + std::string(dashed_line_detected ? "DETECTED" : "NOT DETECTED");
             cv::putText(debug_img, line_text, cv::Point(10, 60),
-                        cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 255, 255), 2);
+                        cv::FONT_HERSHEY_SIMPLEX, 0.7,
+                        dashed_line_detected ? cv::Scalar(0, 255, 0) : cv::Scalar(255, 255, 255), 2);
 
-            std::string density_text = "Density: " + std::to_string(white_density).substr(0, 5);
-            cv::putText(debug_img, density_text, cv::Point(10, 90),
+            // Show white pixel count and thresholds
+            std::string count_text = "White pixels: " + std::to_string(white_pixel_count);
+            cv::putText(debug_img, count_text, cv::Point(10, 90),
+                        cv::FONT_HERSHEY_SIMPLEX, 0.6,
+                        area_in_range ? cv::Scalar(0, 255, 0) : cv::Scalar(255, 255, 255), 2);
+
+            std::string threshold_text = "Range: " + std::to_string(min_dashed_area_) +
+                                         " to " + std::to_string(MAX_DASHED_AREA);
+            cv::putText(debug_img, threshold_text, cv::Point(10, 120),
                         cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(255, 255, 255), 2);
 
-            std::string segments_text = "Segments: " + std::to_string(dashed_segments);
-            cv::putText(debug_img, segments_text, cv::Point(10, 120),
-                        cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(255, 255, 255), 2);
+            std::string segment_text = "Segments: " + std::to_string(valid_segments) + "/" +
+                                       std::to_string(min_dashed_segments_);
+            cv::putText(debug_img, segment_text, cv::Point(10, 150),
+                        cv::FONT_HERSHEY_SIMPLEX, 0.6,
+                        has_segments ? cv::Scalar(0, 255, 0) : cv::Scalar(255, 255, 255), 2);
+
+            // If we've seen a border line, show its area for comparison
+            if (border_area_initialized_)
+            {
+                std::string border_text = "Border area: " + std::to_string(border_line_white_area_);
+                cv::putText(debug_img, border_text, cv::Point(10, 180),
+                            cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 255, 255), 2);
+            }
 
             // Show white mask in corner
             cv::Mat white_viz;
@@ -412,18 +433,21 @@ public:
             return false;
         }
 
+        border_area_initialized_ = false;
+        border_line_white_area_ = 0;
+
         // Create mask for white lines (border is white)
         cv::Mat white_mask;
         cv::Scalar lower_white = cv::Scalar(hue_white_l_, saturation_white_l_, value_white_l_);
         cv::Scalar upper_white = cv::Scalar(hue_white_h_, saturation_white_h_, value_white_h_);
         cv::inRange(img_hsv_, lower_white, upper_white, white_mask);
 
-        // IMPORTANT CHANGE: Apply ROI mask - focus ONLY on the UPPER part of the bottom half
-        // This helps distinguish the border line from the dashed line
+        // Apply ROI mask using configurable parameters
         int height = white_mask.rows;
         int width = white_mask.cols;
-        int roi_height = height / 6;         // Changed from height/3 to height/6
-        int roi_y = height - 2 * roi_height; // Looking higher up than before
+        // Calculate ROI dimensions from factors
+        int roi_height = height / border_roi_height_factor_;
+        int roi_y = height - border_roi_y_factor_ * roi_height;
 
         cv::Mat roi_mask = cv::Mat::zeros(height, width, CV_8UC1);
         cv::rectangle(roi_mask, cv::Rect(0, roi_y, width, roi_height), cv::Scalar(255), -1);
@@ -432,9 +456,12 @@ public:
         // Apply processing
         cv::GaussianBlur(white_mask, white_mask, cv::Size(5, 5), 0);
 
+        // Count white pixels in the ROI
+        int white_pixel_count = cv::countNonZero(white_mask);
+
         // Use Hough Transform to detect lines
         std::vector<cv::Vec4i> lines;
-        cv::HoughLinesP(white_mask, lines, 1, CV_PI / 180, 50, 80, 10); // Increased minLineLength from 50 to 80
+        cv::HoughLinesP(white_mask, lines, 1, CV_PI / 180, 50, 80, 10);
 
         // Count horizontal-ish lines (border lines should be horizontal)
         int horizontal_lines = 0;
@@ -443,12 +470,12 @@ public:
             cv::Vec4i l = lines[i];
             double angle = atan2(l[3] - l[1], l[2] - l[0]) * 180.0 / CV_PI;
 
-            // Check if line is approximately horizontal (-20 to +20 degrees - stricter than before)
-            if (fabs(angle) < 20) // Changed from 30 to 20
+            // Check if line is approximately horizontal
+            if (fabs(angle) < 20)
             {
                 // Check if the line is long enough (border lines are continuous)
                 double length = sqrt(pow(l[2] - l[0], 2) + pow(l[3] - l[1], 2));
-                if (length > width * 0.3) // Only count lines that are at least 30% of image width
+                if (length > width * 0.3)
                 {
                     horizontal_lines++;
 
@@ -465,6 +492,14 @@ public:
         bool border_detected = horizontal_lines > 0;
         border_line_detected_ = border_detected;
 
+        // Store the white pixel count if this is a border line
+        if (border_detected)
+        {
+            border_line_white_area_ = white_pixel_count;
+            border_area_initialized_ = true;
+            ROS_INFO("Border line detected with white pixel count: %d", border_line_white_area_);
+        }
+
         // Visualization
         if (debug_img.data)
         {
@@ -476,6 +511,11 @@ public:
             std::string border_text = "Border Line: " + std::string(border_detected ? "DETECTED" : "NOT DETECTED");
             cv::putText(debug_img, border_text, cv::Point(10, 90),
                         cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 255, 0), 2);
+
+            // Add white pixel count
+            std::string pixel_text = "White pixels: " + std::to_string(white_pixel_count);
+            cv::putText(debug_img, pixel_text, cv::Point(10, 120),
+                        cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(255, 255, 255), 2);
         }
 
         return border_detected;
@@ -943,59 +983,36 @@ public:
     {
         ROS_INFO("Executing get_out maneuver");
 
-        // CRUCIAL: Reset detection flags to avoid false positives from previous steps
-        white_dashed_line_detected_ = false;
-
-        // Force a small delay before starting backward movement to ensure
-        // camera frames and sensor readings refresh
-        ros::Duration(1.0).sleep();
-        ros::spinOnce();
-
-        ROS_INFO("Starting backward movement to find dashed line");
-
         // 1. Move backward until detecting the dashed line
         cv::Mat debug_img;
         double moved_distance = 0.0;
-        double step_distance = 0.05; // Move in small increments
-        double max_backing_distance = 0.7;
+        double step_distance = 0.05;       // Move in small increments
+        double max_backing_distance = 0.7; // Increased from 0.5 to 0.7
 
-        // Use a reasonable but conservative backward speed
-        double safe_backward_speed = 0.1;
+        white_dashed_line_detected_ = false; // Reset detection flag
 
-        ros::Rate rate(10); // 10 Hz
+        // Reduce backward speed to improve stopping precision
+        double reduced_backward_speed = backward_speed_ * 0.7; // Reduce to 70% for better control
 
-        // Debug output
-        ROS_INFO("Initial state - white_dashed_line_detected_: %s",
-                 white_dashed_line_detected_ ? "TRUE" : "FALSE");
+        ros::Rate rate(20); // 10 Hz
+        ROS_INFO("Moving backward until detecting dashed line");
 
-        // Main backward movement loop
         while (ros::ok() && !white_dashed_line_detected_ && moved_distance < max_backing_distance)
         {
-            // Process any waiting messages to get updated sensor data
-            ros::spinOnce();
-
             // Check for dashed white line
+            // Clear any cached detections
+            ros::spinOnce();
             if (image_received_)
             {
                 debug_img = img_bgr_.clone();
+                detectWhiteDashedLine(debug_img);
 
-                // Clear indication of current phase
-                cv::putText(debug_img, "PHASE: BACKING UP", cv::Point(10, 30),
-                            cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 0, 255), 2);
-
-                // Log the moved distance
-                std::string dist_text = "Moved: " + std::to_string(moved_distance) + " m";
-                cv::putText(debug_img, dist_text, cv::Point(10, 60),
-                            cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(255, 255, 255), 2);
-
-                // Check for dashed line
-                white_dashed_line_detected_ = detectWhiteDashedLine(debug_img);
-
+                // CRITICAL: Stop immediately if dashed line detected
                 if (white_dashed_line_detected_)
                 {
-                    ROS_INFO("Dashed line detected during backup at distance %.2f m", moved_distance);
+                    ROS_INFO("Dashed line detected, stopping immediately");
                     stopRobot();
-                    break;
+                    break; // Exit the loop immediately
                 }
 
                 // Display debug image
@@ -1003,86 +1020,81 @@ public:
                 cv::waitKey(1);
             }
 
-            // Explicitly create a backward movement command
+            // Move backward a small step
             geometry_msgs::Twist cmd;
-            cmd.linear.x = -safe_backward_speed; // Negative for reverse
+            cmd.linear.x = -reduced_backward_speed;
             cmd.angular.z = 0.0;
-
-            // Logging for velocity
-            ROS_INFO_THROTTLE(1.0, "Moving backward at %.2f m/s, moved %.2f m",
-                              safe_backward_speed, moved_distance);
-
-            // Publish command
             cmd_vel_pub_.publish(cmd);
 
             moved_distance += step_distance;
             rate.sleep();
         }
 
-        // Guarantee full stop after backing up
+        // Stop after reaching dashed line or maximum distance
         stopRobot();
-        ros::Duration(0.5).sleep();
 
         if (white_dashed_line_detected_)
         {
-            ROS_INFO("Successfully detected dashed line after backing up %.2f meters", moved_distance);
+            ROS_INFO("Correcting position after dashed line detection");
+            moveForward(0.05, forward_speed_ * 0.5); // Move 5cm forward at half speed
         }
         else
         {
-            ROS_WARN("Reached maximum backing distance (%.2f m) without finding dashed line",
-                     max_backing_distance);
+            ROS_INFO("Reached maximum backing distance without finding dashed line");
         }
 
-        // 2. Rotate back (opposite direction of the parking move)
-        double angle = -90.0; // Default rotation (right)
+        // 2. If dashed line was not detected, move a bit further backward
+        if (!white_dashed_line_detected_)
+        {
+            ROS_INFO("No dashed line detected, moving additional distance backward");
+            moveBackward(0.2); // Move 20 cm more
+        }
+
+        // 3. Rotate back (same direction of the parking move)
+        double angle = 90.0; // Default rotation (right)
         if (current_mode_ == "right" ||
             (current_mode_ == "dynamic" && obstacle_left_ && !obstacle_right_))
         {
-            angle = 90.0; // Rotate left to exit right-side parking
+            angle = -90.0; // Rotate right to exit right-side parking
         }
 
-        ROS_INFO("Rotating %.1f degrees to exit parking spot", angle);
         rotate(angle);
 
-        // 3. Move forward until detecting yellow lanes
-        ROS_INFO("Moving forward to find yellow lanes");
+        // 4. Move forward until detecting yellow lanes
+        ROS_INFO("Moving forward until detecting yellow lanes");
         yellow_lanes_detected_ = false; // Reset detection flag
 
         moved_distance = 0.0;
         double max_forward_distance = 1.0; // Maximum distance to move forward
 
+        // Clear any cached detections
+        ros::spinOnce();
+
         while (ros::ok() && !yellow_lanes_detected_ && moved_distance < max_forward_distance)
         {
-            // Get latest camera data
-            ros::spinOnce();
-
             // Check for yellow lanes
             if (image_received_)
             {
                 debug_img = img_bgr_.clone();
-
-                // Clear indication of current phase
-                cv::putText(debug_img, "PHASE: EXITING", cv::Point(10, 30),
-                            cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 255, 0), 2);
-
-                yellow_lanes_detected_ = detectYellowLanes(debug_img);
+                detectYellowLanes(debug_img);
 
                 // Display debug image
                 cv::imshow("Parking Debug", debug_img);
                 cv::waitKey(1);
             }
 
-            // Move forward
+            // Move forward a small step
             geometry_msgs::Twist cmd;
             cmd.linear.x = forward_speed_;
             cmd.angular.z = 0.0;
             cmd_vel_pub_.publish(cmd);
 
             moved_distance += step_distance;
+            ros::spinOnce();
             rate.sleep();
         }
 
-        // Stop at the end
+        // Stop after finding yellow lanes or reaching maximum distance
         stopRobot();
 
         if (yellow_lanes_detected_)

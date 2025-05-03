@@ -12,6 +12,16 @@ parking:
   sleep_time: 3.0
   scan_threshold_distance: 0.5
 
+  border_roi_height_factor: 6 # Divide image height by this to get ROI height
+  border_roi_y_factor: 2 # increase it to look higher in the image
+
+  # Dashed line detection parameters
+  dashed_roi_height_factor: 6 # Divide image height by this to get ROI height
+  dashed_roi_width_factor: 2 # Used to calculate width (width*(factor-2)/factor)
+  min_dashed_area: 200 # Minimum white pixel count for dashed line
+  max_dashed_area_factor: 0.7 # Maximum dashed area as percentage of border line area
+  min_dashed_segments: 2 # Minimum number of segments for dashed line
+
   # Color thresholds for lane detection
   # Yellow lane thresholds
   hue_yellow_l: 20

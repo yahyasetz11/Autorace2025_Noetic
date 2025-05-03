@@ -1,7 +1,7 @@
 <root main_tree_to_execute="LaneDetectBT">
     <BehaviorTree ID="LaneDetectBT">
         <Sequence name="BehaviorTree">
-            <!-- <Sequence name="Mission 1: Intersection">
+            <Sequence name="Mission 1: Intersection">
                 <LaneDetect mode="center" sign="intersection"/>    
                 <LaneDetect mode="intersection" duration="60.0" sign=""/>   
                 <LaneDetect mode="center" sign="construction"/> 
@@ -12,7 +12,7 @@
             <Sequence name="Mission 2: Construction">
                 <Construction/> 
                 <LaneDetect mode="just-turn-left" duration="60.0" sign="right"/>
-            </Sequence> -->
+            </Sequence>
 
             <Sequence name="Mission 3: Parking">
                 <LaneDetect mode="center" duration="0.75" sign=""/>
@@ -22,7 +22,7 @@
                 <LaneDetect mode="just-turn-left" duration="60.0" sign="left"/>
             </Sequence>
 
-            <!-- <Sequence name="Mission 4: Level Crossing">
+            <Sequence name="Mission 4: Level Crossing">
                 <LaneDetect mode="center" duration="300.0" sign="tunnel"/>
             </Sequence>
 
@@ -37,14 +37,15 @@
                 <Rotate direction="clockwise" angle="90.0"/>
                 
                 <TunnelNav mode="online"/>
-                <TunnelNav mode="offline"/>
+                <!-- <TunnelNav mode="offline"/> -->
+                
                 <Align by="right"/>
                 <Move mode="forward" until="timer" distance="5.0"/>
             </Sequence>
 
             <Sequence name="Mission 6: Finish">
                 <LaneDetect mode="center" duration="60.0" sign="stop"/>
-            </Sequence> -->
+            </Sequence>
         </Sequence>
     </BehaviorTree>
 </root>
