@@ -1,0 +1,8 @@
+<launch>
+  <node pkg="action_bt" type="lane_detect_server" name="lane_detect_server" output="screen" />
+  <node pkg="action_bt" type="construction_server" name="construction_server" output="screen" />
+  <node pkg="action_bt" type="tunnel_nav_server" name="tunnel_nav_server" output="screen" />
+  <node pkg="action_bt" type="move_server" name="move_server" output="screen" />
+  <node pkg="action_bt" type="rotate_server" name="rotate_server" output="screen" />
+  <node pkg="action_bt" type="align_server" name="align_server" output="screen" />
+</launch>
