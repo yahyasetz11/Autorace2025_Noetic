@@ -29,6 +29,7 @@ add_action_files(
   Move.action
   Rotate.action
   Align.action
+  Parking.action
 )
 
 ## Generate added messages and services

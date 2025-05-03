@@ -8,6 +8,7 @@
 #include "move_action_node.h"
 #include "rotate_action_node.h"
 #include "align_action_node.h"
+#include "parking_action_node.h"
 
 int main(int argc, char **argv)
 {
@@ -24,6 +25,7 @@ int main(int argc, char **argv)
     factory.registerNodeType<MoveActionNode>("Move");
     factory.registerNodeType<RotateActionNode>("Rotate");
     factory.registerNodeType<AlignActionNode>("Align");
+    factory.registerNodeType<ParkingActionNode>("Parking");
 
     std::cout << "Registered BT Nodes:\n";
     for (const auto &m : factory.manifests())

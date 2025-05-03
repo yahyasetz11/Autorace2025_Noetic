@@ -1,0 +1,8 @@
+# Goal
+string mode       # Mode for parking: "left", "right", or "dynamic"
+---
+# Result
+bool success      # Whether parking mission succeeded
+---
+# Feedback
+float32 time_elapsed  # Time elapsed since start of parking action

@@ -1,0 +1,30 @@
+parking:
+  # Camera topics
+  camera_topic: "/camera/image_projected_compensated"
+
+  # Movement parameters
+  max_linear_speed: 0.08
+  max_angular_speed: 1.0
+  forward_speed: 0.12
+  backward_speed: 0.12
+  rotation_speed: 0.6
+  parking_forward_distance: 0.8
+  sleep_time: 3.0
+  scan_threshold_distance: 0.5
+
+  # Color thresholds for lane detection
+  # Yellow lane thresholds
+  hue_yellow_l: 20
+  hue_yellow_h: 40
+  saturation_yellow_l: 100
+  saturation_yellow_h: 255
+  value_yellow_l: 100
+  value_yellow_h: 255
+
+  # White lane thresholds
+  hue_white_l: 0
+  hue_white_h: 179
+  saturation_white_l: 0
+  saturation_white_h: 70
+  value_white_l: 165
+  value_white_h: 255
