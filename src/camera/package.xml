@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>camera</name>
+  <version>0.1.0</version>
+  <description>
+    Camera package for recording compressed image topics to video files
+  </description>
+
+  <maintainer email="yahyasetz@gmail.com">YahyaSetz</maintainer>
+  <license>BSD</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+  
+  <depend>roscpp</depend>
+  <depend>sensor_msgs</depend>
+  <depend>cv_bridge</depend>
+  <depend>image_transport</depend>
+  <depend>std_srvs</depend>
+  
+  <exec_depend>message_runtime</exec_depend>
+</package>
