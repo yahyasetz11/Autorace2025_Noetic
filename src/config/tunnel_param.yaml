@@ -9,7 +9,7 @@ tunnel_navigation:
   goal_poses:
     # - [-1.0, -0.9, -1.57]
     - [-1.0, -1.7, 0.0]
-    - [-0.3, -1.7, 0.0]
+    - [-0.2, -1.7, 0.0]
 
   # Map saving parameters
   map_base_path: "~/Documents/Autorace2025_Noetic/src/maps/maps" # Base path for saved maps
