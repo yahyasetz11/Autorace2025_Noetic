@@ -6,13 +6,14 @@
 #include <image_transport/image_transport.h>
 #include <sensor_msgs/Image.h>
 #include <geometry_msgs/Twist.h>
-#include <msg_file/Detection.h>
+#include <std_msgs/UInt8.h>
 #include <cmath>                    // For math functions
 #include <nav_msgs/Odometry.h>      // For odometry data
 #include <tf/transform_datatypes.h> // For quaternion to Euler conversion
 #include <yaml-cpp/yaml.h>          // For YAML parsing
 #include <ros/package.h>            // For package path resolution
 #include <fstream>                  // For file handling
+#include <signal.h>                 // For process termination
 
 class LaneDetectServer
 {
@@ -25,8 +26,8 @@ private:
 
     // ROS communication
     ros::Publisher cmd_vel_pub_;
-    ros::Subscriber detection_sub_;
-    ros::Subscriber odom_sub_; // Added for odometry data
+    ros::Subscriber traffic_sign_sub_; // New subscriber for traffic sign
+    ros::Subscriber odom_sub_;         // For odometry data
     image_transport::ImageTransport it_;
     image_transport::Subscriber image_sub_;
 
@@ -38,11 +39,14 @@ private:
     ros::Time start_time_;
     std::string camera_topic_;
 
-    // New variables for improved lane detection
-    std::string current_mode_;        // Current operation mode: "center", "left", "right", "intersection", "just-turn-left", "just-turn-right"
-    std::string target_sign_;         // Sign to wait for
-    bool sign_detected_;              // Flag for sign detection
-    std::string last_detected_sign_;  // Last detected sign (for intersection mode)
+    // Sign detection variables
+    int last_sign_data_;           // Last sign data received
+    bool sign_detected_;           // Flag for sign detection
+    std::string target_sign_;      // Target sign to wait for
+    pid_t detect_sign_process_id_; // Process ID for launched sign detection
+
+    // Lane detection variables
+    std::string current_mode_;        // Current operation mode: "center", "left", "right", "intersection", etc.
     std::string actual_driving_mode_; // The actual driving mode (used by intersection)
     double x_previous_;               // Stored distance from lane to center
     bool both_lanes_detected_;        // Flag for detecting both lanes
@@ -87,7 +91,8 @@ public:
                                          current_mode_("center"),
                                          actual_driving_mode_("center"),
                                          sign_detected_(false),
-                                         last_detected_sign_(""),
+                                         last_sign_data_(0),
+                                         target_sign_(""),
                                          both_lanes_detected_(false),
                                          x_previous_(0.0),
                                          intersection_flag_(0),
@@ -95,7 +100,8 @@ public:
                                          initial_yaw_(0.0),
                                          current_yaw_(0.0),
                                          is_turn_mode_(false),
-                                         yaw_initialized_(false)
+                                         yaw_initialized_(false),
+                                         detect_sign_process_id_(-1)
     {
         // Get camera topic from parameter server
         nh_.param<std::string>("camera_topic", camera_topic_, "/camera/image_projected_compensated");
@@ -115,8 +121,8 @@ public:
         ROS_INFO("Subscribing to camera topic: %s", camera_topic_.c_str());
         image_sub_ = it_.subscribe(camera_topic_, 1, &LaneDetectServer::imageCallback, this);
 
-        // Subscribe to the detection topic
-        detection_sub_ = nh_.subscribe("/detection", 10, &LaneDetectServer::detectionCallback, this);
+        // Subscribe to the traffic sign topic
+        traffic_sign_sub_ = nh_.subscribe("/detect/traffic_sign", 10, &LaneDetectServer::trafficSignCallback, this);
 
         // Subscribe to odometry for yaw tracking
         odom_sub_ = nh_.subscribe("/odom", 10, &LaneDetectServer::odomCallback, this);
@@ -148,6 +154,9 @@ public:
         cmd.linear.x = 0.0;
         cmd.angular.z = 0.0;
         cmd_vel_pub_.publish(cmd);
+
+        // Terminate any active sign detection process
+        terminateSignDetection();
     }
 
     void loadSpeedParameters()
@@ -330,39 +339,119 @@ public:
         }
     }
 
-    // Callback for the detection topic
-    void detectionCallback(const msg_file::Detection::ConstPtr &msg)
+    // Callback for the traffic sign topic
+    void trafficSignCallback(const std_msgs::UInt8::ConstPtr &msg)
     {
-        // Only consider detections with reasonable confidence
-        if (msg->confidence > 0.6)
+        // Store the sign data
+        last_sign_data_ = msg->data;
+
+        // Log sign detection
+        ROS_INFO("SIGN CALLBACK TRIGGERED: data=%d, sign_detected=%s",
+                 last_sign_data_, sign_detected_ ? "TRUE" : "FALSE");
+
+        // Check if this is the sign we're waiting for
+        if (target_sign_ == "intersection" && last_sign_data_ == 1)
         {
-            // Save the last detected sign
-            last_detected_sign_ = msg->sign;
-
-            // Log all sign detections
-            ROS_INFO("Sign detected: %s (confidence: %.2f)",
-                     msg->sign.c_str(), msg->confidence);
-
-            // Special handling for "intersection" target sign
-            if (target_sign_ == "intersection" && (msg->sign == "left" || msg->sign == "right"))
+            // Intersection sign
+            ROS_INFO("Intersection sign detected!");
+            sign_detected_ = true;
+        }
+        else if (target_sign_ == "intersection-dynamic")
+        {
+            if (last_sign_data_ == 2) // Left sign
             {
-                ROS_INFO("Direction sign detected while waiting for intersection: %s", msg->sign.c_str());
+                ROS_INFO("Left sign detected for intersection-dynamic!");
                 sign_detected_ = true;
-                last_detected_sign_ = msg->sign;
+                actual_driving_mode_ = "left";
             }
-            // Normal target sign match
-            else if (!target_sign_.empty() && msg->sign == target_sign_)
+            else if (last_sign_data_ == 3) // Right sign
             {
-                ROS_INFO("Target sign detected: %s", target_sign_.c_str());
+                ROS_INFO("Right sign detected for intersection-dynamic!");
                 sign_detected_ = true;
+                actual_driving_mode_ = "right";
             }
+        }
+        else if (target_sign_ == "construction" && last_sign_data_ == 1)
+        {
+            // Construction sign
+            ROS_INFO("Construction sign detected!");
+            sign_detected_ = true;
+        }
+        else if (target_sign_ == "tunnel" && last_sign_data_ == 1)
+        {
+            // Tunnel sign
+            ROS_INFO("Tunnel sign detected!");
+            sign_detected_ = true;
+        }
+        else if (target_sign_ == "cross" && last_sign_data_ == 1)
+        {
+            // Cross (stop) sign
+            ROS_INFO("Cross/Stop sign detected!");
+            sign_detected_ = true;
+        }
+    }
 
-            // Update driving mode for intersection mode
-            if (current_mode_ == "intersection" && (msg->sign == "left" || msg->sign == "right"))
-            {
-                actual_driving_mode_ = msg->sign;
-                ROS_INFO("Intersection mode: Now driving in %s direction", actual_driving_mode_.c_str());
-            }
+    // Launch sign detection node based on target sign
+    bool launchSignDetection()
+    {
+        std::string mission;
+
+        // Determine the mission type based on target sign
+        if (target_sign_ == "intersection" || target_sign_ == "intersection-dynamic")
+        {
+            mission = "intersection";
+        }
+        else if (target_sign_ == "construction")
+        {
+            mission = "construction";
+        }
+        else if (target_sign_ == "tunnel")
+        {
+            mission = "tunnel";
+        }
+        else if (target_sign_ == "cross")
+        {
+            mission = "stop";
+        }
+        else
+        {
+            // No need to launch sign detection for other sign types
+            return true;
+        }
+
+        ROS_INFO("Launching sign detection for mission: %s", mission.c_str());
+
+        // Create command to launch the sign detection node
+        std::string cmd = "roslaunch turtlebot3_autorace_detect detect_sign.launch mission:=" +
+                          mission + " & echo $! > /tmp/sign_detect_pid";
+
+        // Execute command
+        int ret = system(cmd.c_str());
+
+        // Check result
+        if (ret != 0)
+        {
+            ROS_ERROR("Failed to launch sign detection: %s (return code: %d)", cmd.c_str(), ret);
+            return false;
+        }
+
+        // Read the PID from the temp file
+        std::ifstream pid_file("/tmp/sign_detect_pid");
+        pid_file >> detect_sign_process_id_;
+        pid_file.close();
+
+        ROS_INFO("Sign detection launched with PID: %d", detect_sign_process_id_);
+        return true;
+    }
+
+    // Terminate sign detection process
+    void terminateSignDetection()
+    {
+        if (detect_sign_process_id_ > 0)
+        {
+            ROS_INFO("Terminating sign detection process (PID: %d)", detect_sign_process_id_);
+            kill(detect_sign_process_id_, SIGTERM);
+            detect_sign_process_id_ = -1;
         }
     }
 
@@ -420,16 +509,17 @@ public:
         cv::putText(debug_img, "Mode: " + current_mode_, cv::Point(10, 30),
                     cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 255, 0), 2);
 
-        if (current_mode_ == "intersection" && !actual_driving_mode_.empty())
+        if (current_mode_ == "intersection-dynamic" && !actual_driving_mode_.empty())
         {
             std::string drive_text = "Driving: " + actual_driving_mode_;
             cv::putText(debug_img, drive_text, cv::Point(width / 2 - 80, 30),
                         cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 255, 255), 2);
         }
 
-        if (!last_detected_sign_.empty())
+        if (last_sign_data_ > 0)
         {
-            cv::putText(debug_img, "Last Sign: " + last_detected_sign_, cv::Point(10, 60),
+            std::string sign_text = "Last Sign: " + std::to_string(last_sign_data_);
+            cv::putText(debug_img, sign_text, cv::Point(10, 60),
                         cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 255, 255), 2);
         }
 
@@ -476,9 +566,9 @@ public:
         std::string effective_mode = current_mode_;
         std::string lane_follow_mode = "center"; // Default lane following mode
 
-        if (current_mode_ == "intersection" && !actual_driving_mode_.empty())
+        if (current_mode_ == "intersection-dynamic" && !actual_driving_mode_.empty())
         {
-            // If in intersection mode, use the detected direction for actual driving
+            // If in intersection-dynamic mode, use the detected direction for actual driving
             effective_mode = actual_driving_mode_;
         }
 
@@ -804,8 +894,9 @@ public:
 
         // Set actual driving mode
         actual_driving_mode_ = current_mode_;
-        // If intersection mode, start with center until a sign is detected
-        if (current_mode_ == "intersection")
+
+        // If intersection-dynamic mode, start with center until a sign is detected
+        if (current_mode_ == "intersection-dynamic")
         {
             actual_driving_mode_ = "center";
         }
@@ -832,21 +923,39 @@ public:
         intersection_flag_ = 0;
         previous_both_lanes_ = false;
         last_transition_time_ = ros::Time::now();
-        last_detected_sign_ = "";
+        last_sign_data_ = 0;
 
         ROS_INFO("LaneDetect Server: Mode=%s, Duration=%.2f, Sign=%s",
                  current_mode_.c_str(), duration,
                  target_sign_.empty() ? "none" : target_sign_.c_str());
 
+        // Launch sign detection if needed
+        if (!target_sign_.empty() &&
+            (target_sign_ == "intersection" ||
+             target_sign_ == "intersection-dynamic" ||
+             target_sign_ == "construction" ||
+             target_sign_ == "tunnel" ||
+             target_sign_ == "cross"))
+        {
+            if (!launchSignDetection())
+            {
+                ROS_ERROR("Failed to launch sign detection for %s", target_sign_.c_str());
+                as_.setAborted();
+                return;
+            }
+        }
+
         // Main execution loop
         while (ros::ok())
         {
+
             // Check if preempted
             if (as_.isPreemptRequested() || !ros::ok())
             {
                 ROS_INFO("%s: Preempted", action_name_.c_str());
                 as_.setPreempted();
                 success = false;
+                terminateSignDetection();
                 break;
             }
 
@@ -862,7 +971,7 @@ public:
             // Lane detection conditions based on mode
             bool lane_condition = false;
 
-            if (current_mode_ == "intersection")
+            if (current_mode_ == "intersection-dynamic")
             {
                 // Intersection mode requires 2 times detection
                 lane_condition = intersection_flag_ >= 2;
@@ -924,8 +1033,14 @@ public:
                     ROS_INFO("Turn completed at target angle");
 
                 success = true;
+
                 break;
             }
+            ROS_INFO_THROTTLE(1.0, "Status: time_condition=%s, sign_condition=%s, target_sign=%s, sign_detected=%s",
+                              time_condition ? "true" : "false",
+                              sign_condition ? "true" : "false",
+                              target_sign_.c_str(),
+                              sign_detected_ ? "true" : "false");
 
             // Perform lane detection and robot control
             detectLane();
@@ -945,6 +1060,9 @@ public:
         cmd.angular.z = 0.0;
         cmd_vel_pub_.publish(cmd);
         ROS_INFO("Stopping robot");
+
+        // Terminate sign detection if it was launched
+        terminateSignDetection();
 
         if (success)
         {

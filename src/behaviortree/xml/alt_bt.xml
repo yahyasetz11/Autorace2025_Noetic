@@ -1,18 +1,50 @@
 <root main_tree_to_execute="LaneDetectBT">
     <BehaviorTree ID="LaneDetectBT">
-        <Sequence name="root_sequence">
-            <!-- <LaneDetect mode="center" duration="40"/>  Time-based center mode -->
-            <LaneDetect mode="center" sign="intersection"/>    <!-- Sign-based center mode (succeed after see turn left/right "intersection" sign)-->
-            <LaneDetect mode="right" duration="60.0" sign=""/>    
-            <LaneDetect mode="right" duration="60.0" sign=""/> 
-            <LaneDetect mode="center" sign="construction"/> <!-- Sign-based center mode (succeed after see construction sign)-->
-            <LaneDetect mode="just-turn-left" duration="60.0" sign="right"/>   <!-- Turn left (succeed after 90 degree) but following right lane -->
+        <Sequence name="BehaviorTree">
+            <Sequence name="Mission 1: Intersection">
+                <LaneDetect mode="center" sign="intersection-dynamic"/>    
+                <LaneDetect mode="intersection" duration="60.0" sign=""/>   
+                <LaneDetect mode="center" sign="construction"/> 
+                <LaneDetect mode="center" duration="2.0" sign=""/>
+                <LaneDetect mode="just-turn-left" duration="60.0" sign="right"/>   
+            </Sequence>
 
-            <Construction />    <!-- Construction mission node -->
-            <LaneDetect mode="just-turn-left" duration="60.0" sign="right"/>
+            <Sequence name="Mission 2: Construction">
+                <Construction/> 
+                <LaneDetect mode="just-turn-left" duration="60.0" sign="right"/>
+            </Sequence>
+
+            <Sequence name="Mission 3: Parking">
+                <LaneDetect mode="center" duration="0.75" sign=""/>
+                <LaneDetect mode="just-turn-left" duration="60.0" sign="left"/>    
+                <Parking mode="dynamic"/>
+                <Parking mode="left"/>
+                <LaneDetect mode="just-turn-left" duration="10.0" sign="left"/>
+            </Sequence>
+
+            <!-- <Sequence name="Mission 4: Level Crossing">
+                <LaneDetect mode="center" duration="300.0" sign="tunnel"/>
+            </Sequence>
+
+            <Sequence name="Mission 5: Tunnel">
+                
+                <Move mode="forward" until="right" distance="1.0"/>
+                <Move mode="forward" until="timer" distance="2.5"/>
+                <Align by="right"/>
+                <Rotate direction="counterclockwise" angle="90.0"/>
+                <Move mode="forward" until="back" distance="0.35"/>
+                <Rotate direction="clockwise" angle="90.0"/> 
+                
+                <TunnelNav mode="online"/>
+                <TunnelNav mode="offline"/>              
+                <Align by="right"/>
+                <Rotate direction="counterclockwise" angle="10.0"/>
+                <Move mode="forward" until="timer" distance="2.0"/>
+            </Sequence>
+
+            <Sequence name="Mission 6: Finish">
+                <LaneDetect mode="center" duration="60.0" sign="stop"/>
+            </Sequence> -->
         </Sequence>
     </BehaviorTree>
 </root>
-
-<!-- <LaneDetect mode="left" duration="60.0" sign="left"/> --> <!-- Turn left (succeed after crossing one intersect or after 60s) -->
-<!--<LaneDetect mode="right" duration="60.0" sign="right"/> --> <!-- Turn right (succeed after crossing one intersect or after 60s) -->
