@@ -2,4 +2,5 @@ build/
 devel/
 log/
 .vscode/
+video/
 record.avi

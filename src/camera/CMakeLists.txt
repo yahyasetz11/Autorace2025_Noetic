@@ -26,17 +26,16 @@ include_directories(
 
 ## Declare the video recorder executable
 add_executable(recorder src/recorder.cpp)
-
-## Specify libraries to link against
-target_link_libraries(recorder
-  ${catkin_LIBRARIES}
-  ${OpenCV_LIBRARIES}
-)
-
-## Add dependencies to ensure messages are built first
+target_link_libraries(recorder ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
 add_dependencies(recorder ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
+add_executable(camera_laptop src/camera_laptop.cpp)
+target_link_libraries(camera_laptop ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
+add_dependencies(camera_laptop ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+
 ## Mark executables for installation
-install(TARGETS recorder
+install(TARGETS 
+  recorder
+  camera_laptop 
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )

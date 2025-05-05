@@ -19,10 +19,10 @@
                 <LaneDetect mode="just-turn-left" duration="60.0" sign="left"/>    
                 <Parking mode="dynamic"/>
                 <Parking mode="left"/>
-                <LaneDetect mode="just-turn-left" duration="60.0" sign="left"/>
+                <LaneDetect mode="just-turn-left" duration="10.0" sign="left"/>
             </Sequence>
 
-            <Sequence name="Mission 4: Level Crossing">
+            <!-- <Sequence name="Mission 4: Level Crossing">
                 <LaneDetect mode="center" duration="300.0" sign="tunnel"/>
             </Sequence>
 
@@ -36,8 +36,7 @@
                 <Rotate direction="clockwise" angle="90.0"/> 
                 
                 <TunnelNav mode="online"/>
-                <!-- <TunnelNav mode="offline"/> -->
-                
+                <TunnelNav mode="offline"/>              
                 <Align by="right"/>
                 <Rotate direction="counterclockwise" angle="10.0"/>
                 <Move mode="forward" until="timer" distance="2.0"/>
@@ -45,7 +44,7 @@
 
             <Sequence name="Mission 6: Finish">
                 <LaneDetect mode="center" duration="60.0" sign="stop"/>
-            </Sequence>
+            </Sequence> -->
         </Sequence>
     </BehaviorTree>
 </root>
