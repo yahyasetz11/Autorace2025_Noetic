@@ -1,6 +1,6 @@
 cross_walking:
   # Camera topic
-  camera_topic: "/camera_laptop"
+  camera_topic: "/camera/image_projected_compensated"
 
   # Movement parameters
   forward_speed: 0.08 # Linear speed for forward movement (m/s)

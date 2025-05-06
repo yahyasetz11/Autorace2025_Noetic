@@ -8,6 +8,8 @@
 #include <sensor_msgs/LaserScan.h>
 #include <geometry_msgs/Twist.h>
 #include <tf/transform_listener.h>
+#include <yaml-cpp/yaml.h>
+#include <ros/package.h>
 #include <cmath>
 
 class ParkingServer
@@ -37,39 +39,86 @@ private:
     double parking_forward_distance_;
     double sleep_time_;
 
-    // Color thresholds
+    // Color thresholds for lane detection
     int hue_yellow_l_, hue_yellow_h_;
     int saturation_yellow_l_, saturation_yellow_h_;
     int value_yellow_l_, value_yellow_h_;
-    int hue_white_l_, hue_white_h_;
-    int saturation_white_l_, saturation_white_h_;
-    int value_white_l_, value_white_h_;
 
     // Variables
     cv::Mat img_bgr_;
-    cv::Mat img_hsv_;
     bool image_received_;
     ros::Time start_time_;
-    std::string current_mode_;
     bool obstacle_left_;
     bool obstacle_right_;
-    bool white_dashed_line_detected_;
-    bool border_line_detected_;
     bool yellow_lanes_detected_;
-    int border_line_white_area_;
-    bool border_area_initialized_;
-
-    int border_roi_height_factor_;
-    int border_roi_y_factor_;
-    int dashed_roi_height_factor_;
-    int dashed_roi_width_factor_;
-    int min_dashed_area_;
-    double max_dashed_area_factor_;
-    int min_dashed_segments_;
 
     // Laser scan data
     sensor_msgs::LaserScan latest_scan_;
     bool scan_received_;
+
+    // Load parameters from YAML
+    void loadParameters()
+    {
+        try
+        {
+            // Get the package path
+            std::string package_path = ros::package::getPath("action_bt");
+
+            // Build the path to the config file
+            std::string config_path = package_path + "/../config/parking_param.yaml";
+
+            ROS_INFO("Loading parameters from: %s", config_path.c_str());
+
+            // Load the YAML file
+            YAML::Node config = YAML::LoadFile(config_path);
+
+            // Extract parameters with defaults
+            camera_topic_ = config["parking"]["camera_topic"] ? config["parking"]["camera_topic"].as<std::string>() : "/camera/image_projected_compensated";
+
+            max_linear_speed_ = config["parking"]["max_linear_speed"] ? config["parking"]["max_linear_speed"].as<double>() : 0.08;
+            max_angular_speed_ = config["parking"]["max_angular_speed"] ? config["parking"]["max_angular_speed"].as<double>() : 1.0;
+            forward_speed_ = config["parking"]["forward_speed"] ? config["parking"]["forward_speed"].as<double>() : 0.12;
+            backward_speed_ = config["parking"]["backward_speed"] ? config["parking"]["backward_speed"].as<double>() : 0.12;
+            rotation_speed_ = config["parking"]["rotation_speed"] ? config["parking"]["rotation_speed"].as<double>() : 0.6;
+            parking_forward_distance_ = config["parking"]["parking_forward_distance"] ? config["parking"]["parking_forward_distance"].as<double>() : 0.8;
+            sleep_time_ = config["parking"]["sleep_time"] ? config["parking"]["sleep_time"].as<double>() : 3.0;
+            scan_threshold_distance_ = config["parking"]["scan_threshold_distance"] ? config["parking"]["scan_threshold_distance"].as<double>() : 0.5;
+
+            // Color thresholds for yellow lane detection
+            hue_yellow_l_ = config["parking"]["hue_yellow_l"] ? config["parking"]["hue_yellow_l"].as<int>() : 20;
+            hue_yellow_h_ = config["parking"]["hue_yellow_h"] ? config["parking"]["hue_yellow_h"].as<int>() : 40;
+            saturation_yellow_l_ = config["parking"]["saturation_yellow_l"] ? config["parking"]["saturation_yellow_l"].as<int>() : 100;
+            saturation_yellow_h_ = config["parking"]["saturation_yellow_h"] ? config["parking"]["saturation_yellow_h"].as<int>() : 255;
+            value_yellow_l_ = config["parking"]["value_yellow_l"] ? config["parking"]["value_yellow_l"].as<int>() : 100;
+            value_yellow_h_ = config["parking"]["value_yellow_h"] ? config["parking"]["value_yellow_h"].as<int>() : 255;
+
+            ROS_INFO("Successfully loaded parameters from YAML");
+        }
+        catch (const YAML::Exception &e)
+        {
+            ROS_ERROR("Error loading YAML file: %s", e.what());
+            ROS_WARN("Using default parameters");
+
+            // Set defaults in case of error
+            camera_topic_ = "/camera/image_projected_compensated";
+            max_linear_speed_ = 0.08;
+            max_angular_speed_ = 1.0;
+            forward_speed_ = 0.12;
+            backward_speed_ = 0.12;
+            rotation_speed_ = 0.6;
+            parking_forward_distance_ = 0.8;
+            sleep_time_ = 3.0;
+            scan_threshold_distance_ = 0.5;
+
+            // Default yellow color thresholds
+            hue_yellow_l_ = 20;
+            hue_yellow_h_ = 40;
+            saturation_yellow_l_ = 100;
+            saturation_yellow_h_ = 255;
+            value_yellow_l_ = 100;
+            value_yellow_h_ = 255;
+        }
+    }
 
 public:
     ParkingServer(std::string name) : as_(nh_, name, boost::bind(&ParkingServer::executeCB, this, _1), false),
@@ -78,38 +127,8 @@ public:
                                       image_received_(false),
                                       scan_received_(false)
     {
-        // Load parameters from parameter server
-        nh_.param<std::string>("/parking/camera_topic", camera_topic_, "/camera/image_projected_compensated");
-        nh_.param<double>("/parking/max_linear_speed", max_linear_speed_, 0.08);
-        nh_.param<double>("/parking/max_angular_speed", max_angular_speed_, 1.0);
-        nh_.param<double>("/parking/scan_threshold_distance", scan_threshold_distance_, 0.5);
-        nh_.param<double>("/parking/forward_speed", forward_speed_, 0.1);
-        nh_.param<double>("/parking/backward_speed", backward_speed_, 0.1);
-        nh_.param<double>("/parking/rotation_speed", rotation_speed_, 0.5);
-        nh_.param<double>("/parking/parking_forward_distance", parking_forward_distance_, 0.5);
-        nh_.param<double>("/parking/sleep_time", sleep_time_, 3.0);
-
-        // Color thresholds
-        nh_.param<int>("/parking/hue_yellow_l", hue_yellow_l_, 20);
-        nh_.param<int>("/parking/hue_yellow_h", hue_yellow_h_, 40);
-        nh_.param<int>("/parking/saturation_yellow_l", saturation_yellow_l_, 100);
-        nh_.param<int>("/parking/saturation_yellow_h", saturation_yellow_h_, 255);
-        nh_.param<int>("/parking/value_yellow_l", value_yellow_l_, 100);
-        nh_.param<int>("/parking/value_yellow_h", value_yellow_h_, 255);
-        nh_.param<int>("/parking/hue_white_l", hue_white_l_, 0);
-        nh_.param<int>("/parking/hue_white_h", hue_white_h_, 179);
-        nh_.param<int>("/parking/saturation_white_l", saturation_white_l_, 0);
-        nh_.param<int>("/parking/saturation_white_h", saturation_white_h_, 70);
-        nh_.param<int>("/parking/value_white_l", value_white_l_, 165);
-        nh_.param<int>("/parking/value_white_h", value_white_h_, 255);
-
-        nh_.param<int>("/parking/border_roi_height_factor", border_roi_height_factor_, 6);
-        nh_.param<int>("/parking/border_roi_y_factor", border_roi_y_factor_, 2);
-        nh_.param<int>("/parking/dashed_roi_height_factor", dashed_roi_height_factor_, 5);
-        nh_.param<int>("/parking/dashed_roi_width_factor", dashed_roi_width_factor_, 6);
-        nh_.param<int>("/parking/min_dashed_area", min_dashed_area_, 200);
-        nh_.param<double>("/parking/max_dashed_area_factor", max_dashed_area_factor_, 0.7);
-        nh_.param<int>("/parking/min_dashed_segments", min_dashed_segments_, 2);
+        // Load parameters from YAML file
+        loadParameters();
 
         // Publishers
         cmd_vel_pub_ = nh_.advertise<geometry_msgs::Twist>("/cmd_vel", 10);
@@ -121,6 +140,21 @@ public:
 
         as_.start();
         ROS_INFO("Parking Action Server Started");
+
+        // Display loaded parameters
+        ROS_INFO("Parking Parameters:");
+        ROS_INFO("  max_linear_speed: %.2f", max_linear_speed_);
+        ROS_INFO("  max_angular_speed: %.2f", max_angular_speed_);
+        ROS_INFO("  scan_threshold_distance: %.2f", scan_threshold_distance_);
+        ROS_INFO("  forward_speed: %.2f", forward_speed_);
+        ROS_INFO("  backward_speed: %.2f", backward_speed_);
+        ROS_INFO("  rotation_speed: %.2f", rotation_speed_);
+        ROS_INFO("  parking_forward_distance: %.2f", parking_forward_distance_);
+        ROS_INFO("  sleep_time: %.2f", sleep_time_);
+        ROS_INFO("  Yellow HSV: H=[%d,%d], S=[%d,%d], V=[%d,%d]",
+                 hue_yellow_l_, hue_yellow_h_,
+                 saturation_yellow_l_, saturation_yellow_h_,
+                 value_yellow_l_, value_yellow_h_);
     }
 
     ~ParkingServer()
@@ -140,7 +174,6 @@ public:
         {
             img_bgr_ = cv_bridge::toCvShare(msg, "bgr8")->image;
             image_received_ = true;
-            cv::cvtColor(img_bgr_, img_hsv_, cv::COLOR_BGR2HSV);
         }
         catch (cv_bridge::Exception &e)
         {
@@ -223,11 +256,15 @@ public:
             return false;
         }
 
-        // Create mask for yellow lanes
+        // Create HSV image for color processing
+        cv::Mat img_hsv;
+        cv::cvtColor(img_bgr_, img_hsv, cv::COLOR_BGR2HSV);
+
+        // Create mask for yellow lanes using configured HSV values
         cv::Mat yellow_mask;
         cv::Scalar lower_yellow = cv::Scalar(hue_yellow_l_, saturation_yellow_l_, value_yellow_l_);
         cv::Scalar upper_yellow = cv::Scalar(hue_yellow_h_, saturation_yellow_h_, value_yellow_h_);
-        cv::inRange(img_hsv_, lower_yellow, upper_yellow, yellow_mask);
+        cv::inRange(img_hsv, lower_yellow, upper_yellow, yellow_mask);
 
         // Apply ROI mask - focus only on the bottom half of the image
         int height = yellow_mask.rows;
@@ -296,229 +333,205 @@ public:
         return both_lanes;
     }
 
-    bool detectWhiteDashedLine(cv::Mat &debug_img)
+    void stopRobot()
     {
-        if (!image_received_)
+        geometry_msgs::Twist cmd;
+        cmd.linear.x = 0.0;
+        cmd.angular.z = 0.0;
+        cmd_vel_pub_.publish(cmd);
+        ROS_INFO("Robot stopped");
+    }
+
+    void rotate(double angle)
+    {
+        geometry_msgs::Twist cmd;
+        double angular_speed = rotation_speed_;
+        if (angle < 0)
+            angular_speed = -angular_speed;
+
+        // Convert angle to radians
+        double angle_rad = fabs(angle) * M_PI * 1.2 / 180.0;
+
+        // Set the angular speed
+        cmd.angular.z = angular_speed;
+
+        // Calculate time to rotate
+        double time_to_rotate = angle_rad / fabs(angular_speed);
+
+        ROS_INFO("Rotating %.2f degrees at %.2f rad/s for %.2f seconds",
+                 angle, angular_speed, time_to_rotate);
+
+        // Start rotation
+        ros::Time start = ros::Time::now();
+        ros::Rate rate(50); // 50Hz
+
+        while ((ros::Time::now() - start).toSec() < time_to_rotate && ros::ok())
         {
-            ROS_WARN_THROTTLE(1, "No camera image received yet.");
-            return false;
+            cmd_vel_pub_.publish(cmd);
+            rate.sleep();
+            ros::spinOnce();
         }
 
-        // Create a white mask with thresholds
-        cv::Mat white_mask;
-        cv::Scalar lower_white = cv::Scalar(hue_white_l_, saturation_white_l_, value_white_l_ - 10);
-        cv::Scalar upper_white = cv::Scalar(hue_white_h_, saturation_white_h_ + 20, value_white_h_);
-        cv::inRange(img_hsv_, lower_white, upper_white, white_mask);
+        // Stop rotation
+        stopRobot();
+        ROS_INFO("Rotation completed");
+    }
 
-        // Apply ROI mask using configurable parameters
-        int height = white_mask.rows;
-        int width = white_mask.cols;
-        // Calculate ROI dimensions from factors
-        int roi_height = height / dashed_roi_height_factor_;
-        int roi_y = height - roi_height; // Very bottom of image
-        int roi_width = width * (dashed_roi_width_factor_ - 2) / dashed_roi_width_factor_;
-        int roi_x = width / dashed_roi_width_factor_;
+    void moveForward(double distance, double speed)
+    {
+        // Calculate time to move forward
+        double time_to_move = distance / fabs(speed);
 
-        // Using a centered ROI
-        cv::Mat roi_mask = cv::Mat::zeros(height, width, CV_8UC1);
-        cv::rectangle(roi_mask, cv::Rect(roi_x, roi_y, roi_width, roi_height), cv::Scalar(255), -1);
-        cv::bitwise_and(white_mask, roi_mask, white_mask);
+        ROS_INFO("Moving %.2f meters at %.2f m/s for %.2f seconds",
+                 distance, speed, time_to_move);
 
-        // Apply image processing
-        cv::GaussianBlur(white_mask, white_mask, cv::Size(5, 5), 0);
-        cv::Mat kernel = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3));
-        cv::morphologyEx(white_mask, white_mask, cv::MORPH_OPEN, kernel);
+        // Create and send movement command
+        geometry_msgs::Twist cmd;
+        cmd.linear.x = speed;
+        cmd.angular.z = 0.0;
 
-        // Count white pixels in the ROI
-        int white_pixel_count = cv::countNonZero(white_mask);
+        // Start movement
+        ros::Time start = ros::Time::now();
+        ros::Rate rate(50); // 50Hz
 
-        // Calculate the maximum area as a percentage of border line area
-        // If border area isn't initialized yet, use a default maximum
-        int MAX_DASHED_AREA;
-        if (border_area_initialized_)
+        while ((ros::Time::now() - start).toSec() < time_to_move && ros::ok())
         {
-            MAX_DASHED_AREA = border_line_white_area_ * max_dashed_area_factor_;
+            cmd_vel_pub_.publish(cmd);
+            rate.sleep();
+            ros::spinOnce();
+        }
+
+        // Stop movement
+        stopRobot();
+        ROS_INFO("Movement completed");
+    }
+
+    void moveBackward(double distance)
+    {
+        moveForward(distance, -backward_speed_);
+    }
+
+    void parking_move_dynamic()
+    {
+        ROS_INFO("Executing dynamic parking move");
+
+        // Get debug image for visualization
+        cv::Mat debug_img;
+        if (image_received_)
+        {
+            debug_img = img_bgr_.clone();
+        }
+
+        // Detect obstacles to determine parking side
+        detectObstacles(debug_img);
+
+        // Determine direction based on detected obstacles
+        std::string direction;
+        if (obstacle_left_ && !obstacle_right_)
+        {
+            direction = "right";
+            ROS_INFO("Obstacle on left, parking on right side");
+        }
+        else if (!obstacle_left_ && obstacle_right_)
+        {
+            direction = "left";
+            ROS_INFO("Obstacle on right, parking on left side");
+        }
+        else if (obstacle_left_ && obstacle_right_)
+        {
+            ROS_WARN("Obstacles detected on both sides! Cannot park safely.");
+            return;
         }
         else
         {
-            MAX_DASHED_AREA = 2000; // Default maximum if no border detected yet
+            // Default to right if no obstacles detected
+            direction = "right";
+            ROS_INFO("No obstacles detected, defaulting to right side parking");
         }
 
-        // Check if white area is within dashed line range
-        bool area_in_range = (white_pixel_count >= min_dashed_area_ && white_pixel_count <= MAX_DASHED_AREA);
+        // *** NEW STEP: Move forward for 1 second to ensure proper alignment ***
+        ROS_INFO("Moving forward for 1 second to ensure proper alignment");
+        geometry_msgs::Twist cmd;
+        cmd.linear.x = forward_speed_;
+        cmd.angular.z = 0.0;
+        ros::Time start_time = ros::Time::now();
+        ros::Rate delay_rate(20); // 20Hz rate
 
-        // Additional check: look for segmented appearance using contours
-        std::vector<std::vector<cv::Point>> contours;
-        cv::findContours(white_mask, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
-
-        // Count segments of reasonable size
-        int valid_segments = 0;
-        for (const auto &contour : contours)
+        while (ros::ok() && (ros::Time::now() - start_time).toSec() < 1.0)
         {
-            double area = cv::contourArea(contour);
-            if (area > 20 && area < 800)
-            {
-                valid_segments++;
+            cmd_vel_pub_.publish(cmd);
+            delay_rate.sleep();
+        }
 
-                // Draw contours for debugging
-                if (debug_img.data)
+        // Stop after delay
+        stopRobot();
+        ros::Duration(0.5).sleep(); // Small pause
+
+        // Measure the distance behind using LIDAR (180 degrees - rear)
+        double rear_distance = 0;
+        if (scan_received_)
+        {
+            int rear_index = latest_scan_.ranges.size() / 2; // 180 degrees (back)
+            int range = 10;                                  // Check a few rays around the back to get more reliable measurement
+            int valid_readings = 0;
+
+            for (int i = rear_index - range / 2; i <= rear_index + range / 2; i++)
+            {
+                int idx = (i + latest_scan_.ranges.size()) % latest_scan_.ranges.size(); // Handle wrap-around
+                if (!std::isinf(latest_scan_.ranges[idx]) && !std::isnan(latest_scan_.ranges[idx]))
                 {
-                    cv::drawContours(debug_img, std::vector<std::vector<cv::Point>>{contour}, 0,
-                                     cv::Scalar(0, 255, 0), 2);
+                    rear_distance += latest_scan_.ranges[idx];
+                    valid_readings++;
                 }
             }
-        }
 
-        // Check if we have enough segments
-        bool has_segments = valid_segments >= min_dashed_segments_;
-
-        // Determine if this is a dashed line based on area AND segmentation
-        bool dashed_line_detected = area_in_range && has_segments;
-        white_dashed_line_detected_ = dashed_line_detected;
-
-        // Enhanced visualization
-        if (debug_img.data)
-        {
-            // Draw ROI
-            cv::rectangle(debug_img, cv::Rect(roi_x, roi_y, roi_width, roi_height),
-                          cv::Scalar(0, 0, 255), 2);
-
-            // Add detailed text about detection
-            std::string line_text = "Dashed Line: " + std::string(dashed_line_detected ? "DETECTED" : "NOT DETECTED");
-            cv::putText(debug_img, line_text, cv::Point(10, 60),
-                        cv::FONT_HERSHEY_SIMPLEX, 0.7,
-                        dashed_line_detected ? cv::Scalar(0, 255, 0) : cv::Scalar(255, 255, 255), 2);
-
-            // Show white pixel count and thresholds
-            std::string count_text = "White pixels: " + std::to_string(white_pixel_count);
-            cv::putText(debug_img, count_text, cv::Point(10, 90),
-                        cv::FONT_HERSHEY_SIMPLEX, 0.6,
-                        area_in_range ? cv::Scalar(0, 255, 0) : cv::Scalar(255, 255, 255), 2);
-
-            std::string threshold_text = "Range: " + std::to_string(min_dashed_area_) +
-                                         " to " + std::to_string(MAX_DASHED_AREA);
-            cv::putText(debug_img, threshold_text, cv::Point(10, 120),
-                        cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(255, 255, 255), 2);
-
-            std::string segment_text = "Segments: " + std::to_string(valid_segments) + "/" +
-                                       std::to_string(min_dashed_segments_);
-            cv::putText(debug_img, segment_text, cv::Point(10, 150),
-                        cv::FONT_HERSHEY_SIMPLEX, 0.6,
-                        has_segments ? cv::Scalar(0, 255, 0) : cv::Scalar(255, 255, 255), 2);
-
-            // If we've seen a border line, show its area for comparison
-            if (border_area_initialized_)
+            if (valid_readings > 0)
             {
-                std::string border_text = "Border area: " + std::to_string(border_line_white_area_);
-                cv::putText(debug_img, border_text, cv::Point(10, 180),
-                            cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 255, 255), 2);
+                rear_distance /= valid_readings; // Average of valid readings
+                ROS_INFO("Measured rear distance: %.2f meters", rear_distance);
             }
-
-            // Show white mask in corner
-            cv::Mat white_viz;
-            cv::cvtColor(white_mask, white_viz, cv::COLOR_GRAY2BGR);
-            cv::Mat small_white;
-            cv::resize(white_viz, small_white, cv::Size(width / 4, height / 4));
-            debug_img(cv::Rect(width * 3 / 4, 0, width / 4, height / 4)) = small_white * 0.7;
-        }
-
-        return dashed_line_detected;
-    }
-
-    bool detectBorderLine(cv::Mat &debug_img)
-    {
-        if (!image_received_)
-        {
-            ROS_WARN_THROTTLE(1, "No camera image received yet.");
-            return false;
-        }
-
-        border_area_initialized_ = false;
-        border_line_white_area_ = 0;
-
-        // Create mask for white lines (border is white)
-        cv::Mat white_mask;
-        cv::Scalar lower_white = cv::Scalar(hue_white_l_, saturation_white_l_, value_white_l_);
-        cv::Scalar upper_white = cv::Scalar(hue_white_h_, saturation_white_h_, value_white_h_);
-        cv::inRange(img_hsv_, lower_white, upper_white, white_mask);
-
-        // Apply ROI mask using configurable parameters
-        int height = white_mask.rows;
-        int width = white_mask.cols;
-        // Calculate ROI dimensions from factors
-        int roi_height = height / border_roi_height_factor_;
-        int roi_y = height - border_roi_y_factor_ * roi_height;
-
-        cv::Mat roi_mask = cv::Mat::zeros(height, width, CV_8UC1);
-        cv::rectangle(roi_mask, cv::Rect(0, roi_y, width, roi_height), cv::Scalar(255), -1);
-        cv::bitwise_and(white_mask, roi_mask, white_mask);
-
-        // Apply processing
-        cv::GaussianBlur(white_mask, white_mask, cv::Size(5, 5), 0);
-
-        // Count white pixels in the ROI
-        int white_pixel_count = cv::countNonZero(white_mask);
-
-        // Use Hough Transform to detect lines
-        std::vector<cv::Vec4i> lines;
-        cv::HoughLinesP(white_mask, lines, 1, CV_PI / 180, 50, 80, 10);
-
-        // Count horizontal-ish lines (border lines should be horizontal)
-        int horizontal_lines = 0;
-        for (size_t i = 0; i < lines.size(); i++)
-        {
-            cv::Vec4i l = lines[i];
-            double angle = atan2(l[3] - l[1], l[2] - l[0]) * 180.0 / CV_PI;
-
-            // Check if line is approximately horizontal
-            if (fabs(angle) < 20)
+            else
             {
-                // Check if the line is long enough (border lines are continuous)
-                double length = sqrt(pow(l[2] - l[0], 2) + pow(l[3] - l[1], 2));
-                if (length > width * 0.3)
-                {
-                    horizontal_lines++;
-
-                    // Draw detected horizontal lines
-                    if (debug_img.data)
-                    {
-                        cv::line(debug_img, cv::Point(l[0], l[1]), cv::Point(l[2], l[3]),
-                                 cv::Scalar(0, 255, 0), 2);
-                    }
-                }
+                // If no valid readings, use a default value
+                rear_distance = 1.0; // Default 1 meter
+                ROS_WARN("No valid rear distance measurements, using default: %.2f meters", rear_distance);
             }
         }
-
-        bool border_detected = horizontal_lines > 0;
-        border_line_detected_ = border_detected;
-
-        // Store the white pixel count if this is a border line
-        if (border_detected)
+        else
         {
-            border_line_white_area_ = white_pixel_count;
-            border_area_initialized_ = true;
-            ROS_INFO("Border line detected with white pixel count: %d", border_line_white_area_);
+            // If no scan received, use a default
+            rear_distance = 1.0;
+            ROS_WARN("No scan data received, using default rear distance: %.2f meters", rear_distance);
         }
 
-        // Visualization
-        if (debug_img.data)
+        // Turn based on direction
+        double angle = 90.0; // Left rotation
+        if (direction == "right")
         {
-            // Draw ROI
-            cv::rectangle(debug_img, cv::Rect(0, roi_y, width, roi_height),
-                          cv::Scalar(255, 0, 0), 2);
-
-            // Add text about detection
-            std::string border_text = "Border Line: " + std::string(border_detected ? "DETECTED" : "NOT DETECTED");
-            cv::putText(debug_img, border_text, cv::Point(10, 90),
-                        cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 255, 0), 2);
-
-            // Add white pixel count
-            std::string pixel_text = "White pixels: " + std::to_string(white_pixel_count);
-            cv::putText(debug_img, pixel_text, cv::Point(10, 120),
-                        cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(255, 255, 255), 2);
+            angle = -90.0; // Right rotation
         }
+        rotate(angle);
 
-        return border_detected;
+        // Move forward for parking distance (could be parameter from yaml)
+        // Using a fraction of the measured rear distance to ensure we don't hit anything
+        double forward_distance = std::min(parking_forward_distance_, rear_distance * 0.7);
+        ROS_INFO("Moving forward %.2f meters into parking spot", forward_distance);
+        moveForward(forward_distance, forward_speed_);
+
+        // Wait in parking spot
+        ROS_INFO("Waiting in parking spot for %.1f seconds", sleep_time_);
+        ros::Duration(sleep_time_).sleep();
+
+        // Reverse out by the same distance
+        ROS_INFO("Backing out of parking spot");
+        moveForward(forward_distance, -backward_speed_);
+
+        // Turn back to face original direction
+        rotate(angle); // Same angle brings us back to original orientation
+
+        // Move forward to exit completely
+        ROS_INFO("Moving forward to clear parking area");
+        moveForward(0.15, forward_speed_);
     }
 
     void followCenterLane(cv::Mat &debug_img)
@@ -529,11 +542,15 @@ public:
             return;
         }
 
-        // Create mask for yellow lanes
+        // Create HSV image for color processing
+        cv::Mat img_hsv;
+        cv::cvtColor(img_bgr_, img_hsv, cv::COLOR_BGR2HSV);
+
+        // Create mask for yellow lanes using configured HSV values
         cv::Mat yellow_mask;
         cv::Scalar lower_yellow = cv::Scalar(hue_yellow_l_, saturation_yellow_l_, value_yellow_l_);
         cv::Scalar upper_yellow = cv::Scalar(hue_yellow_h_, saturation_yellow_h_, value_yellow_h_);
-        cv::inRange(img_hsv_, lower_yellow, upper_yellow, yellow_mask);
+        cv::inRange(img_hsv, lower_yellow, upper_yellow, yellow_mask);
 
         // Apply ROI mask for the bottom part of the image
         int height = yellow_mask.rows;
@@ -673,627 +690,90 @@ public:
                           cmd.linear.x, cmd.angular.z, error);
     }
 
-    void stopRobot()
-    {
-        geometry_msgs::Twist cmd;
-        cmd.linear.x = 0.0;
-        cmd.angular.z = 0.0;
-        cmd_vel_pub_.publish(cmd);
-        ROS_INFO("Robot stopped");
-    }
-
-    void rotate(double angle)
-    {
-        geometry_msgs::Twist cmd;
-        double angular_speed = rotation_speed_;
-        if (angle < 0)
-            angular_speed = -angular_speed;
-
-        // Convert angle to radians
-        double angle_rad = fabs(angle) * M_PI * 1.1 / 180.0;
-
-        // Set the angular speed
-        cmd.angular.z = angular_speed;
-
-        // Calculate time to rotate
-        double time_to_rotate = angle_rad / fabs(angular_speed);
-
-        ROS_INFO("Rotating %.2f degrees at %.2f rad/s for %.2f seconds",
-                 angle, angular_speed, time_to_rotate);
-
-        // Start rotation
-        ros::Time start = ros::Time::now();
-        ros::Rate rate(50); // 50Hz
-
-        while ((ros::Time::now() - start).toSec() < time_to_rotate && ros::ok())
-        {
-            cmd_vel_pub_.publish(cmd);
-            rate.sleep();
-            ros::spinOnce();
-        }
-
-        // Stop rotation
-        stopRobot();
-        ROS_INFO("Rotation completed");
-    }
-
-    void moveForward(double distance, double speed)
-    {
-        // Calculate time to move forward
-        double time_to_move = distance / fabs(speed);
-
-        ROS_INFO("Moving forward %.2f meters at %.2f m/s for %.2f seconds",
-                 distance, speed, time_to_move);
-
-        // Create and send movement command
-        geometry_msgs::Twist cmd;
-        cmd.linear.x = speed;
-        cmd.angular.z = 0.0;
-
-        // Start movement
-        ros::Time start = ros::Time::now();
-        ros::Rate rate(50); // 50Hz
-
-        while ((ros::Time::now() - start).toSec() < time_to_move && ros::ok())
-        {
-            cmd_vel_pub_.publish(cmd);
-            rate.sleep();
-            ros::spinOnce();
-        }
-
-        // Stop movement
-        stopRobot();
-        ROS_INFO("Forward movement completed");
-    }
-
-    void moveBackward(double distance)
-    {
-        moveForward(distance, -backward_speed_);
-    }
-
-    void parking_move(std::string direction)
-    {
-        ROS_INFO("Executing parking move for %s side", direction.c_str());
-
-        // Instead of separate rotation and forward movement,
-        // we'll apply both linear and angular velocities simultaneously
-
-        double angular_velocity = rotation_speed_;
-        if (direction == "right")
-        {
-            angular_velocity = -rotation_speed_; // Negative for right turn
-        }
-
-        // Setup for border detection
-        cv::Mat debug_img;
-        ros::Rate rate(20); // 20 Hz for more responsive detection
-        border_line_detected_ = false;
-
-        // Keep track of accumulated angle to know when we've reached ~90 degrees
-        double start_time = ros::Time::now().toSec();
-        double current_time = start_time;
-        double angle_moved = 0.0;         // In radians
-        double target_angle = M_PI / 2.0; // 90 degrees in radians
-
-        ROS_INFO("Starting curved parking maneuver");
-
-        // Motion continues until either:
-        // 1. Border line detected, or
-        // 2. We've rotated approximately 90 degrees
-        while (ros::ok() && !border_line_detected_ && angle_moved < target_angle)
-        {
-            // Process incoming messages
-            ros::spinOnce();
-
-            // Check for border line
-            if (image_received_)
-            {
-                debug_img = img_bgr_.clone();
-                detectBorderLine(debug_img);
-
-                // Display debug image
-                cv::imshow("Parking Debug", debug_img);
-                cv::waitKey(1);
-            }
-
-            // Calculate current angle moved
-            current_time = ros::Time::now().toSec();
-            double elapsed_time = current_time - start_time;
-            angle_moved = fabs(angular_velocity) * elapsed_time;
-
-            // Adjust linear velocity as we turn - start faster, slow down as we approach 90 degrees
-            double progress = angle_moved / target_angle; // 0.0 to 1.0
-            double linear_velocity = forward_speed_ * (1.0 - 0.7 * progress);
-
-            // Create and send curved motion command
-            geometry_msgs::Twist cmd;
-            cmd.linear.x = linear_velocity;
-            cmd.angular.z = angular_velocity;
-            cmd_vel_pub_.publish(cmd);
-
-            // Log progress
-            if (int(elapsed_time * 2) % 2 == 0)
-            { // Log every ~0.5 seconds
-                ROS_INFO_THROTTLE(0.5, "Progress: %.2f%%, Angle: %.1f degrees, Linear: %.2f m/s",
-                                  progress * 100.0, angle_moved * 180.0 / M_PI, linear_velocity);
-            }
-
-            rate.sleep();
-        }
-
-        // Stop robot
-        stopRobot();
-
-        // If stopped due to border detection
-        if (border_line_detected_)
-        {
-            ROS_INFO("Border line detected, stopping curved motion");
-        }
-        else
-        {
-            ROS_INFO("Completed ~90 degree turn with curved trajectory");
-        }
-
-        // If we haven't seen a border line yet, move forward a bit more
-        if (!border_line_detected_)
-        {
-            ROS_INFO("No border detected during curved motion, moving forward a bit more");
-            double moved_distance = 0.0;
-            double step_distance = 0.05;
-            double max_forward_distance = 0.3;
-
-            while (ros::ok() && !border_line_detected_ && moved_distance < max_forward_distance)
-            {
-                // Check for border line
-                ros::spinOnce();
-                if (image_received_)
-                {
-                    debug_img = img_bgr_.clone();
-                    detectBorderLine(debug_img);
-                    cv::imshow("Parking Debug", debug_img);
-                    cv::waitKey(1);
-                }
-
-                // Move forward
-                geometry_msgs::Twist cmd;
-                cmd.linear.x = forward_speed_ * 0.7; // Reduced speed
-                cmd.angular.z = 0.0;
-                cmd_vel_pub_.publish(cmd);
-
-                moved_distance += step_distance;
-                rate.sleep();
-            }
-
-            stopRobot();
-        }
-
-        // Wait in parking spot
-        ROS_INFO("Waiting in parking spot for %.1f seconds", sleep_time_);
-        ros::Duration(sleep_time_).sleep();
-    }
-
-    void parking_move_dynamic()
-    {
-        ROS_INFO("Executing dynamic parking move");
-
-        // Get debug image for visualization
-        cv::Mat debug_img;
-        if (image_received_)
-        {
-            debug_img = img_bgr_.clone();
-        }
-
-        // Detect obstacles to determine parking side
-        detectObstacles(debug_img);
-
-        // Determine direction based on detected obstacles
-        std::string direction;
-        if (obstacle_left_ && !obstacle_right_)
-        {
-            direction = "right";
-            ROS_INFO("Obstacle on left, parking on right side");
-        }
-        else if (!obstacle_left_ && obstacle_right_)
-        {
-            direction = "left";
-            ROS_INFO("Obstacle on right, parking on left side");
-        }
-        else if (obstacle_left_ && obstacle_right_)
-        {
-            ROS_WARN("Obstacles detected on both sides! Cannot park safely.");
-            return;
-        }
-        else
-        {
-            // Default to right if no obstacles detected
-            direction = "right";
-            ROS_INFO("No obstacles detected, defaulting to right side parking");
-        }
-
-        // First rotate based on direction
-        double angle = 90.0; // Left rotation
-        if (direction == "right")
-        {
-            angle = -90.0; // Right rotation
-        }
-
-        rotate(angle);
-
-        // CRITICAL FIX: Add a small forward movement to clear the dashed line
-        // This ensures we're not detecting the dashed line as a border
-        ROS_INFO("Moving forward a short distance to clear dashed line");
-        moveForward(0.2, forward_speed_); // Move 20 cm forward
-
-        // Now move forward until detecting border line
-        cv::Mat debug_img2;
-        ros::Rate rate(10); // 10 Hz
-        double moved_distance = 0.0;
-        double step_distance = 0.05;       // Move in small increments
-        double max_forward_distance = 0.8; // Increased from 0.5 to 0.8
-
-        border_line_detected_ = false;
-
-        ROS_INFO("Moving forward until detecting border line");
-
-        // Clear any cached detections
-        ros::spinOnce();
-
-        while (ros::ok() && !border_line_detected_ && moved_distance < max_forward_distance)
-        {
-            // Check for border line
-            if (image_received_)
-            {
-                debug_img2 = img_bgr_.clone();
-                detectBorderLine(debug_img2);
-
-                // Display debug image
-                cv::imshow("Parking Debug", debug_img2);
-                cv::waitKey(1);
-            }
-
-            // Move forward a small step
-            geometry_msgs::Twist cmd;
-            cmd.linear.x = forward_speed_;
-            cmd.angular.z = 0.0;
-            cmd_vel_pub_.publish(cmd);
-
-            moved_distance += step_distance;
-            ros::spinOnce();
-            rate.sleep();
-        }
-
-        // Stop after reaching border or maximum distance
-        stopRobot();
-
-        if (border_line_detected_)
-        {
-            ROS_INFO("Border line detected, stopping forward movement");
-        }
-        else
-        {
-            ROS_INFO("Reached maximum parking distance");
-        }
-
-        // Wait in parking spot
-        ROS_INFO("Waiting in parking spot for %.1f seconds", sleep_time_);
-        ros::Duration(sleep_time_).sleep();
-    }
-
-    void get_out()
-    {
-        ROS_INFO("Executing get_out maneuver");
-
-        // 1. Move backward until detecting the dashed line
-        cv::Mat debug_img;
-        double moved_distance = 0.0;
-        double step_distance = 0.05;       // Move in small increments
-        double max_backing_distance = 0.7; // Increased from 0.5 to 0.7
-
-        white_dashed_line_detected_ = false; // Reset detection flag
-
-        // Reduce backward speed to improve stopping precision
-        double reduced_backward_speed = backward_speed_ * 0.7; // Reduce to 70% for better control
-
-        ros::Rate rate(20); // 10 Hz
-        ROS_INFO("Moving backward until detecting dashed line");
-
-        while (ros::ok() && !white_dashed_line_detected_ && moved_distance < max_backing_distance)
-        {
-            // Check for dashed white line
-            // Clear any cached detections
-            ros::spinOnce();
-            if (image_received_)
-            {
-                debug_img = img_bgr_.clone();
-                detectWhiteDashedLine(debug_img);
-
-                // CRITICAL: Stop immediately if dashed line detected
-                if (white_dashed_line_detected_)
-                {
-                    ROS_INFO("Dashed line detected, stopping immediately");
-                    stopRobot();
-                    break; // Exit the loop immediately
-                }
-
-                // Display debug image
-                cv::imshow("Parking Debug", debug_img);
-                cv::waitKey(1);
-            }
-
-            // Move backward a small step
-            geometry_msgs::Twist cmd;
-            cmd.linear.x = -reduced_backward_speed;
-            cmd.angular.z = 0.0;
-            cmd_vel_pub_.publish(cmd);
-
-            moved_distance += step_distance;
-            rate.sleep();
-        }
-
-        // Stop after reaching dashed line or maximum distance
-        stopRobot();
-
-        if (white_dashed_line_detected_)
-        {
-            ROS_INFO("Correcting position after dashed line detection");
-            moveForward(0.05, forward_speed_ * 0.5); // Move 5cm forward at half speed
-        }
-        else
-        {
-            ROS_INFO("Reached maximum backing distance without finding dashed line");
-        }
-
-        // 2. If dashed line was not detected, move a bit further backward
-        if (!white_dashed_line_detected_)
-        {
-            ROS_INFO("No dashed line detected, moving additional distance backward");
-            moveBackward(0.2); // Move 20 cm more
-        }
-
-        // 3. Rotate back (same direction of the parking move)
-        double angle = 90.0; // Default rotation (right)
-        if (current_mode_ == "right" ||
-            (current_mode_ == "dynamic" && obstacle_left_ && !obstacle_right_))
-        {
-            angle = -90.0; // Rotate right to exit right-side parking
-        }
-
-        rotate(angle);
-
-        // 4. Move forward until detecting yellow lanes
-        ROS_INFO("Moving forward until detecting yellow lanes");
-        yellow_lanes_detected_ = false; // Reset detection flag
-
-        moved_distance = 0.0;
-        double max_forward_distance = 1.0; // Maximum distance to move forward
-
-        // Clear any cached detections
-        ros::spinOnce();
-
-        while (ros::ok() && !yellow_lanes_detected_ && moved_distance < max_forward_distance)
-        {
-            // Check for yellow lanes
-            if (image_received_)
-            {
-                debug_img = img_bgr_.clone();
-                detectYellowLanes(debug_img);
-
-                // Display debug image
-                cv::imshow("Parking Debug", debug_img);
-                cv::waitKey(1);
-            }
-
-            // Move forward a small step
-            geometry_msgs::Twist cmd;
-            cmd.linear.x = forward_speed_;
-            cmd.angular.z = 0.0;
-            cmd_vel_pub_.publish(cmd);
-
-            moved_distance += step_distance;
-            ros::spinOnce();
-            rate.sleep();
-        }
-
-        // Stop after finding yellow lanes or reaching maximum distance
-        stopRobot();
-
-        if (yellow_lanes_detected_)
-        {
-            ROS_INFO("Yellow lanes detected, parking exit complete");
-        }
-        else
-        {
-            ROS_WARN("Could not find yellow lanes after exiting parking spot");
-        }
-    }
-
     void executeCB(const msg_file::ParkingGoalConstPtr &goal)
     {
         bool success = true;
         start_time_ = ros::Time::now();
         ros::Rate r(10); // 10 Hz
 
-        // Get parameters from goal
-        current_mode_ = goal->mode;
-
-        // Set default mode if not specified or invalid
-        if (current_mode_.empty() ||
-            (current_mode_ != "left" && current_mode_ != "right" && current_mode_ != "dynamic"))
-        {
-            current_mode_ = "dynamic";
-            ROS_WARN("Invalid mode specified, defaulting to 'dynamic'");
-        }
-
         // Reset detection flags
         obstacle_left_ = false;
         obstacle_right_ = false;
-        white_dashed_line_detected_ = false;
-        border_line_detected_ = false;
         yellow_lanes_detected_ = false;
 
-        ROS_INFO("ParkingServer: Starting mission with mode=%s", current_mode_.c_str());
+        ROS_INFO("ParkingServer: Starting mission with dynamic mode");
 
         // Add timeout for detection
         ros::Time start_detection_time = ros::Time::now();
         double max_detection_time = 30.0; // 30 seconds timeout
 
-        // Main execution flow
-        if (current_mode_ == "dynamic")
+        // Phase 1: Follow center lane until detecting obstacles
+        ROS_INFO("Phase 1: Following center lane until obstacle detection");
+        bool obstacles_detected = false;
+
+        while (ros::ok() && !obstacles_detected)
         {
-            // Phase 1: Follow center lane until detecting obstacles
-            ROS_INFO("Phase 1: Following center lane until obstacle detection");
-            bool obstacles_detected = false;
-
-            while (ros::ok() && !obstacles_detected)
+            // Check if preempted
+            if (as_.isPreemptRequested() || !ros::ok())
             {
-                // Check if preempted
-                if (as_.isPreemptRequested() || !ros::ok())
-                {
-                    ROS_INFO("%s: Preempted", action_name_.c_str());
-                    as_.setPreempted();
-                    success = false;
-                    break;
-                }
-
-                // Check for timeout
-                if ((ros::Time::now() - start_detection_time).toSec() > max_detection_time)
-                {
-                    ROS_WARN("Timed out waiting for obstacle detection. Proceeding anyway.");
-                    obstacles_detected = true; // Force to proceed
-                    break;
-                }
-
-                // Create debug image
-                cv::Mat debug_img;
-                if (image_received_)
-                {
-                    debug_img = img_bgr_.clone();
-
-                    // Display current mode
-                    cv::putText(debug_img, "Mode: " + current_mode_, cv::Point(10, 30),
-                                cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 255, 0), 2);
-                }
-
-                // Check for obstacles on both sides
-                if (detectObstacles(debug_img))
-                {
-                    obstacles_detected = true;
-                    ROS_INFO("Obstacles detected, stopping center lane following");
-                    stopRobot();
-                }
-                else
-                {
-                    // Continue following center lane
-                    followCenterLane(debug_img);
-                }
-
-                // Show debug image
-                if (image_received_)
-                {
-                    cv::imshow("Parking Debug", debug_img);
-                    cv::waitKey(1);
-                }
-
-                // Calculate time elapsed for feedback
-                feedback_.time_elapsed = (ros::Time::now() - start_time_).toSec();
-                as_.publishFeedback(feedback_);
-
-                ros::spinOnce();
-                r.sleep();
+                ROS_INFO("%s: Preempted", action_name_.c_str());
+                as_.setPreempted();
+                success = false;
+                break;
             }
 
-            // Phase 2: Execute dynamic parking
-            if (obstacles_detected && success)
+            // Check for timeout
+            if ((ros::Time::now() - start_detection_time).toSec() > max_detection_time)
             {
-                ROS_INFO("Phase 2: Executing dynamic parking");
-                parking_move_dynamic();
-
-                // Phase 3: Execute parking exit
-                ROS_INFO("Phase 3: Exiting parking spot");
-                get_out();
+                ROS_WARN("Timed out waiting for obstacle detection. Proceeding anyway.");
+                obstacles_detected = true; // Force to proceed
+                break;
             }
+
+            // Create debug image
+            cv::Mat debug_img;
+            if (image_received_)
+            {
+                debug_img = img_bgr_.clone();
+
+                // Display current mode
+                cv::putText(debug_img, "Mode: Dynamic", cv::Point(10, 30),
+                            cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 255, 0), 2);
+            }
+
+            // Check for obstacles on both sides
+            if (detectObstacles(debug_img))
+            {
+                obstacles_detected = true;
+                ROS_INFO("Obstacles detected, stopping center lane following");
+                stopRobot();
+            }
+            else
+            {
+                // Continue following center lane
+                followCenterLane(debug_img);
+            }
+
+            // Show debug image
+            if (image_received_)
+            {
+                cv::imshow("Parking Debug", debug_img);
+                cv::waitKey(1);
+            }
+
+            // Calculate time elapsed for feedback
+            feedback_.time_elapsed = (ros::Time::now() - start_time_).toSec();
+            as_.publishFeedback(feedback_);
+
+            ros::spinOnce();
+            r.sleep();
         }
-        else if (current_mode_ == "left" || current_mode_ == "right")
+
+        // Phase 2: Execute dynamic parking
+        if (obstacles_detected && success)
         {
-            // Phase 1: Follow center lane until detecting dashed line
-            ROS_INFO("Phase 1: Following center lane until dashed line");
-            bool dashed_line_detected = false;
-
-            while (ros::ok() && !dashed_line_detected)
-            {
-                // Check if preempted
-                if (as_.isPreemptRequested() || !ros::ok())
-                {
-                    ROS_INFO("%s: Preempted", action_name_.c_str());
-                    as_.setPreempted();
-                    success = false;
-                    break;
-                }
-
-                // Check for timeout
-                if ((ros::Time::now() - start_detection_time).toSec() > max_detection_time)
-                {
-                    ROS_WARN("Timed out waiting for dashed line detection. Proceeding with parking anyway.");
-                    dashed_line_detected = true; // Force to proceed
-                    break;
-                }
-
-                // Process messages to get latest data
-                ros::spinOnce();
-
-                // Create debug image
-                cv::Mat debug_img;
-                if (image_received_)
-                {
-                    debug_img = img_bgr_.clone();
-
-                    // Display current mode
-                    cv::putText(debug_img, "Mode: " + current_mode_, cv::Point(10, 30),
-                                cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 255, 0), 2);
-
-                    // IMPORTANT: Always check for dashed line
-                    dashed_line_detected = detectWhiteDashedLine(debug_img);
-
-                    if (dashed_line_detected)
-                    {
-                        ROS_INFO("DASHED LINE DETECTED! Stopping to begin parking.");
-                        stopRobot();
-                        // Add a small pause to stabilize
-                        ros::Duration(0.5).sleep();
-                    }
-
-                    // Show debug image
-                    cv::imshow("Parking Debug", debug_img);
-                    cv::waitKey(1);
-                }
-
-                // Continue following center lane if no dashed line detected
-                if (!dashed_line_detected)
-                {
-                    followCenterLane(debug_img);
-                }
-
-                // Calculate time elapsed for feedback
-                feedback_.time_elapsed = (ros::Time::now() - start_time_).toSec();
-                as_.publishFeedback(feedback_);
-
-                r.sleep();
-            }
-
-            // Make sure to stop before proceeding to parking
-            stopRobot();
-            ros::Duration(0.5).sleep();
-
-            // Phase 2: Execute fixed direction parking
-            if (success)
-            { // Only check success, we'll proceed whether dashed line was detected or not
-                ROS_INFO("Phase 2: Executing %s parking", current_mode_.c_str());
-                parking_move(current_mode_);
-
-                // Phase 3: Execute parking exit
-                ROS_INFO("Phase 3: Exiting parking spot");
-                get_out();
-            }
+            ROS_INFO("Phase 2: Executing dynamic parking");
+            parking_move_dynamic();
         }
 
         // Final status
@@ -1302,6 +782,12 @@ public:
             result_.success = true;
             ROS_INFO("%s: Succeeded", action_name_.c_str());
             as_.setSucceeded(result_);
+        }
+        else
+        {
+            result_.success = false;
+            ROS_INFO("%s: Failed", action_name_.c_str());
+            as_.setAborted(result_);
         }
     }
 };
