@@ -1,0 +1,23 @@
+!!python/object/new:dynamic_reconfigure.encoding.Config
+dictitems:
+  bottom_x: 193
+  bottom_y: 122
+  groups: !!python/object/new:dynamic_reconfigure.encoding.Config
+    dictitems:
+      bottom_x: 193
+      bottom_y: 122
+      groups: !!python/object/new:dynamic_reconfigure.encoding.Config
+        state: []
+      id: 0
+      name: Default
+      parameters: !!python/object/new:dynamic_reconfigure.encoding.Config
+        state: []
+      parent: 0
+      state: true
+      top_x: 120
+      top_y: 20
+      type: ''
+    state: []
+  top_x: 120
+  top_y: 20
+state: []
