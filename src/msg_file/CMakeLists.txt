@@ -30,6 +30,7 @@ add_action_files(
   Rotate.action
   Align.action
   Parking.action
+  CrossWalk.action
 )
 
 ## Generate added messages and services

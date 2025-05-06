@@ -3,7 +3,6 @@
         <Sequence name="BehaviorTree">
             <Sequence name="Mission 1: Intersection">
                 <LaneDetect mode="center" sign="intersection"/>    
-                <!-- <LaneDetect mode="center" duration="20.0" sign=""/>  -->
                 <LaneDetect mode="right" duration="60.0" sign=""/>    
                 <LaneDetect mode="right" duration="60.0" sign=""/>   
                 <LaneDetect mode="center" duration="5.0" sign=""/> 
@@ -26,6 +25,8 @@
             </Sequence>
 
             <!-- <Sequence name="Mission 4: Level Crossing">
+                <LaneDetect mode="center" duration="300.0" sign="stop"/>
+                <CrossWalk/>
                 <LaneDetect mode="center" duration="300.0" sign="tunnel"/>
             </Sequence>
 

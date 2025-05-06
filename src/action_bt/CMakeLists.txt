@@ -65,6 +65,9 @@ add_executable(parking_server src/parking_server.cpp)
 target_link_libraries(parking_server ${catkin_LIBRARIES} ${YAML_CPP_LIBRARIES})
 add_dependencies(parking_server ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
+add_executable(cross_walk_server src/cross_walk_server.cpp)
+target_link_libraries(cross_walk_server ${catkin_LIBRARIES} ${YAML_CPP_LIBRARIES})
+add_dependencies(cross_walk_server ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 # Install targets
 install(TARGETS 
@@ -75,6 +78,7 @@ install(TARGETS
   rotate_server
   align_server
   parking_server
+  cross_walk_server
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

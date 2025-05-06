@@ -1,0 +1,9 @@
+# goal
+---
+# result
+bool success
+---
+# feedback
+float32 time_elapsed
+uint8 current_state  # 0=approaching, 1=waiting, 2=moving_after, 3=completed
+int32 pixel_count

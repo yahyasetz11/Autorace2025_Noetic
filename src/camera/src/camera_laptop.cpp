@@ -18,8 +18,8 @@ int main(int argc, char **argv)
     int fps;
 
     private_nh.param("camera_id", camera_id, 0);         // Default camera (usually built-in webcam)
-    private_nh.param("frame_width", frame_width, 640);   // Default width
-    private_nh.param("frame_height", frame_height, 480); // Default height
+    private_nh.param("frame_width", frame_width, 320);   // Default width
+    private_nh.param("frame_height", frame_height, 240); // Default height
     private_nh.param("fps", fps, 30);                    // Default FPS
 
     // Create image transport and publisher
