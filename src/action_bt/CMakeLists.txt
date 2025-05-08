@@ -16,6 +16,14 @@ find_package(catkin REQUIRED COMPONENTS
   move_base_msgs
 )
 
+add_library(pid STATIC 
+  lib/pid.cpp
+)
+target_include_directories(pid PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/lib>
+  $<INSTALL_INTERFACE:include>
+)
+
 # Find OpenCV
 find_package(OpenCV REQUIRED)
 
@@ -82,7 +90,26 @@ install(TARGETS
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
+install(TARGETS 
+  pid
+  lane_detect_server
+  construction_server
+  tunnel_nav_server
+  move_server 
+  rotate_server
+  align_server
+  parking_server
+  cross_walk_server
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 # Install config files
-install(DIRECTORY config/
+install(DIRECTORY 
+  config/
   DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/config
+)
+
+install (DIRECTORY 
+  lib/
+  FILES_MATCHING PATTERN "*.hpp"
 )
