@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>scan_debug</name>
+  <version>0.0.0</version>
+  <description>LIDAR scan debug tool</description>
+  <maintainer email="user@todo.todo">user</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+  <build_depend>roscpp</build_depend>
+  <build_depend>sensor_msgs</build_depend>
+  <build_depend>dynamic_reconfigure</build_depend>
+  
+  <exec_depend>roscpp</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>dynamic_reconfigure</exec_depend>
+</package>
