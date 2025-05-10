@@ -52,7 +52,7 @@ private:
     double x_previous_;               // Stored distance from lane to center
     bool both_lanes_detected_;        // Flag for detecting both lanes
 
-    // Yaw tracking for turn modes
+    // Yaw tracking for turn modes and intersection
     double initial_yaw_;   // Initial yaw angle when turn started
     double current_yaw_;   // Current yaw angle
     bool is_turn_mode_;    // Whether we're in a turning mode
@@ -62,6 +62,15 @@ private:
     int intersection_flag_;          // Counter for intersection detection
     bool previous_both_lanes_;       // Previous state of both lanes detection
     ros::Time last_transition_time_; // Time of last lane detection state change
+
+    // Intersection mode specific variables
+    bool intersection_initial_turn_done_;     // Whether initial turn is done
+    bool intersection_x_sign_seen_;           // Whether X sign has been seen
+    int intersection_retry_count_;            // Count of retries after X sign
+    std::string intersection_turn_direction_; // "left" or "right" based on detected sign
+    double intersection_initial_yaw_;         // Initial yaw when intersection mode starts
+    bool intersection_yaw_recorded_;          // Whether initial yaw is recorded
+    double yaw_tolerance_;                    // Tolerance for yaw comparison in degrees
 
     // Lane detection parameters
     int hue_white_l, hue_white_h;
@@ -108,7 +117,14 @@ public:
                                          current_yaw_(0.0),
                                          is_turn_mode_(false),
                                          yaw_initialized_(false),
-                                         detect_sign_process_id_(-1)
+                                         detect_sign_process_id_(-1),
+                                         intersection_initial_turn_done_(false),
+                                         intersection_x_sign_seen_(false),
+                                         intersection_retry_count_(0),
+                                         intersection_turn_direction_(""),
+                                         intersection_initial_yaw_(0.0),
+                                         intersection_yaw_recorded_(false),
+                                         yaw_tolerance_(10.0) // 10 degrees tolerance
     {
         // Get camera topic from parameter server
         nh_.param<std::string>("camera_topic", camera_topic_, "/camera/image_projected_compensated");
@@ -340,6 +356,14 @@ public:
             ROS_INFO("Initial yaw set to: %.2f degrees", initial_yaw_ * 180.0 / M_PI);
         }
 
+        // Record initial yaw for intersection mode
+        if (current_mode_ == "intersection" && !intersection_yaw_recorded_ && image_received_)
+        {
+            intersection_initial_yaw_ = yaw;
+            intersection_yaw_recorded_ = true;
+            ROS_INFO("Intersection initial yaw recorded: %.2f degrees", intersection_initial_yaw_ * 180.0 / M_PI);
+        }
+
         // Debug yaw information
         if (is_turn_mode_ && yaw_initialized_)
         {
@@ -371,26 +395,31 @@ public:
                  last_sign_data_, sign_detected_ ? "TRUE" : "FALSE");
 
         // Check if this is the sign we're waiting for
-        if (target_sign_ == "intersection" && last_sign_data_ == 1)
+        if (current_mode_ == "intersection" && !intersection_initial_turn_done_)
         {
-            // Intersection sign
-            ROS_INFO("Intersection sign detected!");
-            sign_detected_ = true;
-        }
-        else if (target_sign_ == "intersection-dynamic")
-        {
+            // For new intersection mode, detect left/right signs
             if (last_sign_data_ == 2) // Left sign
             {
-                ROS_INFO("Left sign detected for intersection-dynamic!");
+                ROS_INFO("Left sign detected for intersection!");
                 sign_detected_ = true;
+                intersection_turn_direction_ = "left";
                 actual_driving_mode_ = "left";
             }
             else if (last_sign_data_ == 3) // Right sign
             {
-                ROS_INFO("Right sign detected for intersection-dynamic!");
+                ROS_INFO("Right sign detected for intersection!");
                 sign_detected_ = true;
+                intersection_turn_direction_ = "right";
                 actual_driving_mode_ = "right";
             }
+        }
+        else if (current_mode_ == "intersection" && intersection_initial_turn_done_ && last_sign_data_ == 4)
+        {
+            // X sign detection (data = 4)
+            ROS_INFO("X sign detected! Will retry turn direction: %s", intersection_turn_direction_.c_str());
+            intersection_x_sign_seen_ = true;
+            intersection_retry_count_ = 0;                       // Reset retry count
+            actual_driving_mode_ = intersection_turn_direction_; // Set to retry the same direction
         }
         else if (target_sign_ == "construction" && last_sign_data_ == 1)
         {
@@ -412,13 +441,13 @@ public:
         }
     }
 
-    // Launch sign detection node based on target sign
+    // Launch sign detection node based on target sign or mode
     bool launchSignDetection()
     {
         std::string mission;
 
-        // Determine the mission type based on target sign
-        if (target_sign_ == "intersection" || target_sign_ == "intersection-dynamic")
+        // Determine the mission type based on target sign or mode
+        if (current_mode_ == "intersection")
         {
             mission = "intersection";
         }
@@ -530,11 +559,33 @@ public:
         cv::putText(debug_img, "Mode: " + current_mode_, cv::Point(10, 30),
                     cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 255, 0), 2);
 
-        if (current_mode_ == "intersection-dynamic" && !actual_driving_mode_.empty())
+        // Special display for intersection mode
+        if (current_mode_ == "intersection")
         {
-            std::string drive_text = "Driving: " + actual_driving_mode_;
-            cv::putText(debug_img, drive_text, cv::Point(width / 2 - 80, 30),
+            std::string state_text = "State: ";
+            if (!intersection_initial_turn_done_)
+            {
+                state_text += "Wait for Turn Sign";
+            }
+            else if (!intersection_x_sign_seen_)
+            {
+                state_text += "Looking for X Sign";
+            }
+            else
+            {
+                state_text += "Final Turn " + intersection_turn_direction_;
+            }
+
+            cv::putText(debug_img, state_text, cv::Point(10, 90),
                         cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 255, 255), 2);
+
+            if (intersection_yaw_recorded_)
+            {
+                double yaw_diff = calculateYawDifference(current_yaw_, intersection_initial_yaw_);
+                std::string yaw_text = "Yaw Diff: " + std::to_string(int(yaw_diff)) + " deg";
+                cv::putText(debug_img, yaw_text, cv::Point(10, 120),
+                            cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 255, 255), 2);
+            }
         }
 
         if (last_sign_data_ > 0)
@@ -570,6 +621,21 @@ public:
         cv::waitKey(1);
     }
 
+    // Helper function to calculate yaw difference in degrees
+    double calculateYawDifference(double current, double initial)
+    {
+        double diff = current - initial;
+
+        // Normalize to [-π, π]
+        while (diff > M_PI)
+            diff -= 2 * M_PI;
+        while (diff < -M_PI)
+            diff += 2 * M_PI;
+
+        // Convert to degrees
+        return diff * 180.0 / M_PI;
+    }
+
     // Non-linear gain function
     double applyNonLinearGain(double value, double factor)
     {
@@ -587,10 +653,24 @@ public:
         std::string effective_mode = current_mode_;
         std::string lane_follow_mode = "center"; // Default lane following mode
 
-        if (current_mode_ == "intersection-dynamic" && !actual_driving_mode_.empty())
+        // For intersection mode, determine the driving behavior
+        if (current_mode_ == "intersection")
         {
-            // If in intersection-dynamic mode, use the detected direction for actual driving
-            effective_mode = actual_driving_mode_;
+            if (sign_detected_ && !intersection_initial_turn_done_)
+            {
+                // After detecting left/right sign, start turning
+                effective_mode = actual_driving_mode_; // "left" or "right"
+            }
+            else if (intersection_x_sign_seen_ && intersection_retry_count_ == 0)
+            {
+                // After seeing X sign, retry the turn
+                effective_mode = actual_driving_mode_; // Same direction as before
+            }
+            else
+            {
+                // Otherwise follow center lane
+                effective_mode = "center";
+            }
         }
 
         // For turn modes, determine which lane to follow based on sign parameter
@@ -789,7 +869,7 @@ public:
 
         // Display intersection flag count
         std::string flag_text = "Intersection Flag: " + std::to_string(intersection_flag_);
-        cv::putText(debug_img, flag_text, cv::Point(10, 90),
+        cv::putText(debug_img, flag_text, cv::Point(10, 150),
                     cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 255, 0), 2);
 
         // Update the previous state and current state
@@ -882,14 +962,14 @@ public:
 
             // Display lane following mode in debug
             std::string follow_text = "Following: " + lane_follow_mode + " lane";
-            cv::putText(debug_img, follow_text, cv::Point(10, 120),
+            cv::putText(debug_img, follow_text, cv::Point(10, 180),
                         cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 255, 0), 2);
         }
 
         // Display PID info on debug image
         std::string pid_text = "PID: e=" + std::to_string(steering_pid_.first_error) +
                                " out=" + std::to_string(steering_pid_.output);
-        cv::putText(debug_img, pid_text, cv::Point(10, 150),
+        cv::putText(debug_img, pid_text, cv::Point(10, 210),
                     cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 255, 255), 2);
 
         // Create and send movement command
@@ -915,6 +995,12 @@ public:
         current_mode_ = goal->mode;
         target_sign_ = goal->sign;
 
+        // Convert old intersection-dynamic to new intersection mode
+        if (current_mode_ == "intersection-dynamic")
+        {
+            current_mode_ = "intersection";
+        }
+
         // Set default mode if not specified
         if (current_mode_.empty())
         {
@@ -924,11 +1010,12 @@ public:
         // Set actual driving mode
         actual_driving_mode_ = current_mode_;
 
-        // If intersection-dynamic mode, start with center until a sign is detected
-        if (current_mode_ == "intersection-dynamic")
-        {
-            actual_driving_mode_ = "center";
-        }
+        // Reset intersection-specific flags
+        intersection_initial_turn_done_ = false;
+        intersection_x_sign_seen_ = false;
+        intersection_retry_count_ = 0;
+        intersection_turn_direction_ = "";
+        intersection_yaw_recorded_ = false;
 
         // Check if this is a turning mode
         is_turn_mode_ = (current_mode_ == "just-turn-left" || current_mode_ == "just-turn-right");
@@ -963,16 +1050,12 @@ public:
                  target_sign_.empty() ? "none" : target_sign_.c_str());
 
         // Launch sign detection if needed
-        if (!target_sign_.empty() &&
-            (target_sign_ == "intersection" ||
-             target_sign_ == "intersection-dynamic" ||
-             target_sign_ == "construction" ||
-             target_sign_ == "tunnel" ||
-             target_sign_ == "cross"))
+        if (current_mode_ == "intersection" ||
+            (target_sign_ == "construction" || target_sign_ == "tunnel" || target_sign_ == "cross"))
         {
             if (!launchSignDetection())
             {
-                ROS_ERROR("Failed to launch sign detection for %s", target_sign_.c_str());
+                ROS_ERROR("Failed to launch sign detection");
                 as_.setAborted();
                 return;
             }
@@ -981,7 +1064,6 @@ public:
         // Main execution loop
         while (ros::ok())
         {
-
             // Check if preempted
             if (as_.isPreemptRequested() || !ros::ok())
             {
@@ -993,27 +1075,21 @@ public:
             }
 
             // Check success conditions
+            bool time_condition = false;
+            bool sign_condition = false;
+            bool lane_condition = false;
+            bool turn_condition = false;
+            bool intersection_condition = false;
 
             // Duration-based success (if duration > 0)
-            bool time_condition = (duration > 0) &&
-                                  ((ros::Time::now() - start_time_) > ros::Duration(duration));
+            time_condition = (duration > 0) &&
+                             ((ros::Time::now() - start_time_) > ros::Duration(duration));
 
             // Sign detection success
-            bool sign_condition = !target_sign_.empty() && sign_detected_;
+            sign_condition = !target_sign_.empty() && sign_detected_;
 
             // Lane detection conditions based on mode
-            bool lane_condition = false;
-
-            if (current_mode_ == "intersection-dynamic")
-            {
-                // Intersection mode requires 2 times detection
-                lane_condition = intersection_flag_ >= 2;
-                if (lane_condition)
-                {
-                    ROS_INFO("Intersection mode: Detected both lanes twice (flag=%d)", intersection_flag_);
-                }
-            }
-            else if (current_mode_ == "left" || current_mode_ == "right")
+            if (current_mode_ == "left" || current_mode_ == "right")
             {
                 // Left/right modes require 1 time detection
                 lane_condition = intersection_flag_ >= 1;
@@ -1024,7 +1100,6 @@ public:
             }
 
             // Yaw-based turn success condition
-            bool turn_condition = false;
             if (is_turn_mode_ && yaw_initialized_)
             {
                 // Calculate turn angle (handle wrap-around)
@@ -1053,27 +1128,97 @@ public:
                 }
             }
 
-            if (time_condition || sign_condition || lane_condition || turn_condition)
+            // New intersection mode success condition
+            if (current_mode_ == "intersection")
+            {
+                // Check the state of intersection mode
+                if (!intersection_initial_turn_done_ && sign_detected_ && !intersection_turn_direction_.empty())
+                {
+                    // Just detected initial turn sign, start turning
+                    ROS_INFO("Starting initial turn: %s", intersection_turn_direction_.c_str());
+                }
+                else if (!intersection_initial_turn_done_ && intersection_flag_ >= 1 && sign_detected_)
+                {
+                    // Complete initial turn after seeing flag once
+                    intersection_initial_turn_done_ = true;
+                    intersection_flag_ = 0;          // Reset flag counter
+                    actual_driving_mode_ = "center"; // Switch to center following
+                    ROS_INFO("Initial turn completed, switching to center mode to find X sign");
+                }
+                else if (intersection_initial_turn_done_ && intersection_x_sign_seen_ && intersection_flag_ >= 1)
+                {
+                    // After X sign and retry turn with one flag
+                    // Now check for both lanes AND yaw condition
+                    if (both_lanes_detected_ && intersection_yaw_recorded_)
+                    {
+                        double yaw_diff = calculateYawDifference(current_yaw_, intersection_initial_yaw_);
+
+                        // Check if we've turned approximately 180 degrees (with tolerance)
+                        if (fabs(fabs(yaw_diff) - 180.0) <= yaw_tolerance_)
+                        {
+                            ROS_INFO("Intersection success: both lanes detected and yaw diff=%.2f degrees", yaw_diff);
+                            intersection_condition = true;
+                        }
+                        else
+                        {
+                            ROS_INFO_THROTTLE(1.0, "Both lanes detected but yaw not correct yet: %.2f degrees", yaw_diff);
+                            // Continue following both lanes
+                            actual_driving_mode_ = "center";
+                        }
+                    }
+                }
+            }
+
+            if (time_condition || sign_condition || lane_condition || turn_condition || intersection_condition)
             {
                 if (time_condition)
                     ROS_INFO("Duration completed: %.2f seconds", duration);
                 if (sign_condition)
                     ROS_INFO("Target sign detected: %s", target_sign_.c_str());
                 if (lane_condition)
-                    ROS_INFO("Intersection detected (flag=%d) while in %s mode",
+                    ROS_INFO("Lane condition met (flag=%d) while in %s mode",
                              intersection_flag_, current_mode_.c_str());
                 if (turn_condition)
                     ROS_INFO("Turn completed at target angle");
+                if (intersection_condition)
+                    ROS_INFO("Intersection completed successfully with correct yaw");
+
+                // Reset yaw values for future use
+                if (intersection_condition)
+                {
+                    intersection_yaw_recorded_ = false;
+                    intersection_initial_yaw_ = 0.0;
+                }
 
                 success = true;
-
                 break;
             }
-            ROS_INFO_THROTTLE(1.0, "Status: time_condition=%s, sign_condition=%s, target_sign=%s, sign_detected=%s",
+
+            // Special handlers for intersection mode state transitions
+            if (current_mode_ == "intersection")
+            {
+                if (!intersection_initial_turn_done_ && sign_detected_ && intersection_flag_ >= 1)
+                {
+                    // Check if initial turn has one flag
+                    intersection_initial_turn_done_ = true;
+                    intersection_flag_ = 0; // Reset counter
+                    actual_driving_mode_ = "center";
+                    ROS_INFO("Initial turn done, looking for X sign");
+                }
+                else if (intersection_initial_turn_done_ && intersection_x_sign_seen_ && intersection_retry_count_ == 0)
+                {
+                    // Start retry turn
+                    intersection_retry_count_ = 1;
+                    intersection_flag_ = 0; // Reset flag counter
+                    actual_driving_mode_ = intersection_turn_direction_;
+                    ROS_INFO("Starting retry turn: %s", intersection_turn_direction_.c_str());
+                }
+            }
+
+            ROS_INFO_THROTTLE(1.0, "Status: time_condition=%s, sign_condition=%s, intersection_condition=%s",
                               time_condition ? "true" : "false",
                               sign_condition ? "true" : "false",
-                              target_sign_.c_str(),
-                              sign_detected_ ? "true" : "false");
+                              intersection_condition ? "true" : "false");
 
             // Perform lane detection and robot control
             detectLane();

@@ -3,7 +3,7 @@
         <Sequence name="BehaviorTree">
             <Sequence name="Mission 1: Intersection">
                 <LaneDetect mode="center" sign="intersection"/>    
-                <LaneDetect mode="intersection-dynamic" duration="60.0" sign=""/>   
+                <LaneDetect mode="intersection" duration="300.0" sign=""/>   
                 <LaneDetect mode="center" duration="5.0" sign=""/> 
                 <LaneDetect mode="center" sign="construction"/> 
                 <LaneDetect mode="center" duration="2.0" sign=""/>
