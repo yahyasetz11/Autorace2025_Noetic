@@ -9,6 +9,6 @@ min_linear_speed: 0.05 # Minimum linear speed during sharp turns
 speed_reduction_factor: 0.7 # Factor to reduce speed when turning
 
 # PID controller parameters
-pid_kp: -5 # Proportional gain
+pid_kp: 5 # Proportional gain
 pid_ki: 0 # Integral gain
 pid_kd: 0 # Derivative gain

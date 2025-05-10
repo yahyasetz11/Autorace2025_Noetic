@@ -186,9 +186,10 @@ public:
             speed_reduction_factor = config["speed_reduction_factor"] ? config["speed_reduction_factor"].as<double>() : 0.7;
 
             // Load PID parameters
-            pid_kp_ = config["pid_kp"] ? config["pid_kp"].as<double>() : 0.8;
-            pid_ki_ = config["pid_ki"] ? config["pid_ki"].as<double>() : 0.05;
-            pid_kd_ = config["pid_kd"] ? config["pid_kd"].as<double>() : 0.2;
+            pid_kp_ = config["pid_kp"] ? config["pid_kp"].as<double>() : 5.0;
+            pid_ki_ = config["pid_ki"] ? config["pid_ki"].as<double>() : 0.0;
+            pid_kd_ = config["pid_kd"] ? config["pid_kd"].as<double>() : 0.0;
+            pid_kp_ *= -1;
         }
         catch (const YAML::Exception &e)
         {
@@ -201,7 +202,7 @@ public:
             non_linear_factor = 1.5;
             min_linear_speed = 0.05;
             speed_reduction_factor = 0.7;
-            pid_kp_ = 0.8;
+            pid_kp_ = -5.0;
             pid_ki_ = 0.05;
             pid_kd_ = 0.2;
         }
