@@ -6,3 +6,4 @@ video/
 record.avi
 .catkin_tools
 logs/
+src/maps/
