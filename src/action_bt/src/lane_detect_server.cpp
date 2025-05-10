@@ -14,6 +14,7 @@
 #include <ros/package.h>            // For package path resolution
 #include <fstream>                  // For file handling
 #include <signal.h>                 // For process termination
+#include "pid.hpp"                  // PID controller header
 
 class LaneDetectServer
 {
@@ -79,6 +80,12 @@ private:
     double min_linear_speed;       // Minimum linear speed
     double speed_reduction_factor; // Factor to reduce speed when turning
 
+    // PID controller
+    PID_t steering_pid_;
+    double pid_kp_;
+    double pid_ki_;
+    double pid_kd_;
+
     // Configuration file paths
     std::string speed_config_path_;
     std::string color_config_path_;
@@ -114,6 +121,10 @@ public:
         loadSpeedParameters();
         loadColorParameters();
 
+        // Initialize PID controller
+        pid_param(&steering_pid_, pid_kp_, pid_ki_, pid_kd_);
+        steering_pid_.setpoint = 0.0; // We want to center the robot
+
         // Publishers
         cmd_vel_pub_ = nh_.advertise<geometry_msgs::Twist>("/cmd_vel", 10);
 
@@ -138,6 +149,7 @@ public:
         ROS_INFO("  non_linear_factor: %.2f", non_linear_factor);
         ROS_INFO("  min_linear_speed: %.2f m/s", min_linear_speed);
         ROS_INFO("  speed_reduction_factor: %.2f", speed_reduction_factor);
+        ROS_INFO("  PID parameters: kp=%.3f, ki=%.3f, kd=%.3f", pid_kp_, pid_ki_, pid_kd_);
 
         ROS_INFO("Color parameters from %s:", color_config_path_.c_str());
         ROS_INFO("  white_lane HSV: H=[%d,%d], S=[%d,%d], V=[%d,%d]",
@@ -172,6 +184,11 @@ public:
             non_linear_factor = config["non_linear_factor"] ? config["non_linear_factor"].as<double>() : 1.5;
             min_linear_speed = config["min_linear_speed"] ? config["min_linear_speed"].as<double>() : 0.05;
             speed_reduction_factor = config["speed_reduction_factor"] ? config["speed_reduction_factor"].as<double>() : 0.7;
+
+            // Load PID parameters
+            pid_kp_ = config["pid_kp"] ? config["pid_kp"].as<double>() : 0.8;
+            pid_ki_ = config["pid_ki"] ? config["pid_ki"].as<double>() : 0.05;
+            pid_kd_ = config["pid_kd"] ? config["pid_kd"].as<double>() : 0.2;
         }
         catch (const YAML::Exception &e)
         {
@@ -184,6 +201,9 @@ public:
             non_linear_factor = 1.5;
             min_linear_speed = 0.05;
             speed_reduction_factor = 0.7;
+            pid_kp_ = 0.8;
+            pid_ki_ = 0.05;
+            pid_kd_ = 0.2;
         }
     }
 
@@ -804,8 +824,10 @@ public:
             // Calculate weighted average offset
             double avg_offset = total_offset / valid_regions;
 
-            // Convert offset to steering value with sensitivity
-            angular_z = -1 * avg_offset * max_angular_speed * steering_sensitivity;
+            // Apply PID controller
+            pid_input(&steering_pid_, avg_offset);
+            pid_calculate(&steering_pid_);
+            angular_z = -1 * pid_output(&steering_pid_) * max_angular_speed;
 
             // Limit maximum steering
             if (angular_z > max_angular_speed)
@@ -862,6 +884,12 @@ public:
             cv::putText(debug_img, follow_text, cv::Point(10, 120),
                         cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 255, 0), 2);
         }
+
+        // Display PID info on debug image
+        std::string pid_text = "PID: e=" + std::to_string(steering_pid_.first_error) +
+                               " out=" + std::to_string(steering_pid_.output);
+        cv::putText(debug_img, pid_text, cv::Point(10, 150),
+                    cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 255, 255), 2);
 
         // Create and send movement command
         geometry_msgs::Twist cmd;
@@ -924,6 +952,10 @@ public:
         previous_both_lanes_ = false;
         last_transition_time_ = ros::Time::now();
         last_sign_data_ = 0;
+
+        // Reset PID controller
+        steering_pid_.sum_error = 0.0;
+        steering_pid_.last_error = 0.0;
 
         ROS_INFO("LaneDetect Server: Mode=%s, Duration=%.2f, Sign=%s",
                  current_mode_.c_str(), duration,

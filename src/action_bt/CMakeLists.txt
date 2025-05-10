@@ -46,7 +46,7 @@ include_directories(
 
 # Declare the executable
 add_executable(lane_detect_server src/lane_detect_server.cpp)
-target_link_libraries(lane_detect_server ${catkin_LIBRARIES} ${OpenCV_LIBRARIES} ${YAML_CPP_LIBRARIES})
+target_link_libraries(lane_detect_server ${catkin_LIBRARIES} ${OpenCV_LIBRARIES} ${YAML_CPP_LIBRARIES} pid)
 add_dependencies(lane_detect_server ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 add_executable(construction_server src/construction_server.cpp)
@@ -107,9 +107,4 @@ install(TARGETS
 install(DIRECTORY 
   config/
   DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/config
-)
-
-install (DIRECTORY 
-  lib/
-  FILES_MATCHING PATTERN "*.hpp"
 )
