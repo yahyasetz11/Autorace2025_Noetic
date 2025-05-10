@@ -16,36 +16,34 @@
                 <LaneDetect mode="just-turn-left" duration="60.0" sign="right"/>
             </Sequence> -->
 
-            <Sequence name="Mission 3: Parking">
+            <!-- <Sequence name="Mission 3: Parking">
                 <LaneDetect mode="center" duration="0.75" sign=""/>
                 <LaneDetect mode="just-turn-left" duration="60.0" sign="left"/>    
                 <Parking mode="dynamic"/>
                 <LaneDetect mode="just-turn-left" duration="10.0" sign="left"/>
             </Sequence>
 
-            <!-- <Sequence name="Mission 4: Level Crossing">
+            <Sequence name="Mission 4: Level Crossing">
                 <LaneDetect mode="center" duration="300.0" sign="stop"/>
                 <CrossWalk/>
                 <LaneDetect mode="center" duration="300.0" sign="tunnel"/>
-            </Sequence>
+            </Sequence> -->
 
             <Sequence name="Mission 5: Tunnel">
-                
                 <Move mode="forward" until="right" distance="1.0"/>
                 <Move mode="forward" until="timer" distance="2.5"/>
                 <Align by="right"/>
                 <Rotate direction="counterclockwise" angle="90.0"/>
                 <Move mode="forward" until="back" distance="0.35"/>
                 <Rotate direction="clockwise" angle="90.0"/> 
-                
                 <TunnelNav mode="online"/>
-                <TunnelNav mode="offline"/>              
+                <!-- <TunnelNav mode="offline"/>              
                 <Align by="right"/>
                 <Rotate direction="counterclockwise" angle="10.0"/>
-                <Move mode="forward" until="timer" distance="2.0"/>
+                <Move mode="forward" until="timer" distance="2.0"/> -->
             </Sequence>
 
-            <Sequence name="Mission 6: Finish">
+            <!-- <Sequence name="Mission 6: Finish">
                 <LaneDetect mode="center" duration="60.0" sign="stop"/>
             </Sequence> -->
         </Sequence>
