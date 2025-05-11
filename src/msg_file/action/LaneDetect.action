@@ -2,6 +2,7 @@
 float32 duration   # Duration in seconds (0 for infinite)
 string mode        # Lane following mode: "center", "left", or "right"
 string sign        # Sign to wait for (empty if using duration)
+float32 speed
 ---
 # Result
 bool success       # Whether lane detection succeeded

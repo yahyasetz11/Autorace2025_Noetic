@@ -24,7 +24,8 @@ public:
     return {
         BT::InputPort<float>("duration", 0.0, "Duration in seconds (0 for infinite)"),
         BT::InputPort<std::string>("mode", "center", "Lane following mode: center, left, or right"),
-        BT::InputPort<std::string>("sign", "", "Sign to wait for (empty if using duration)")};
+        BT::InputPort<std::string>("sign", "", "Sign to wait for (empty if using duration)"),
+        BT::InputPort<float>("speed", 0.0, "Linear speed override (0 to use YAML value)")};
   }
 
   BT::NodeStatus tick() override
@@ -33,19 +34,22 @@ public:
     float duration = 0.0;
     std::string mode = "center";
     std::string sign = "";
+    float speed = 0.0;
 
     getInput("duration", duration);
     getInput("mode", mode);
     getInput("sign", sign);
+    getInput("speed", speed);
 
     // Create and send the goal
     msg_file::LaneDetectGoal goal;
     goal.duration = duration;
     goal.mode = mode;
     goal.sign = sign;
+    goal.speed = speed;
 
-    ROS_INFO("Sending goal - Mode: %s, Duration: %.1f, Sign: %s",
-             mode.c_str(), duration, sign.empty() ? "none" : sign.c_str());
+    ROS_INFO("Sending goal - Mode: %s, Duration: %.1f, Sign: %s, Speed: %.2f",
+             mode.c_str(), duration, sign.empty() ? "none" : sign.c_str(), speed);
 
     client_.sendGoal(goal);
 

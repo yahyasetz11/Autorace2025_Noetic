@@ -4,8 +4,8 @@
             <Sequence name="Mission 1: Intersection">
                 <!-- <LaneDetect mode="center" sign="intersection"/>    
                 <LaneDetect mode="intersection" duration="300.0" sign=""/>    -->
-                <LaneDetect mode="center" sign="construction"/> 
-                <LaneDetect mode="just-turn-left" duration="60.0" sign="right"/>   
+                <LaneDetect mode="center" sign="construction" speed="0.1"/> 
+                <LaneDetect mode="just-turn-left" duration="60.0" sign="right"/ speed="0.18">   
             </Sequence>
 
             <Sequence name="Mission 2: Construction">
@@ -13,14 +13,14 @@
                 <LaneDetect mode="just-turn-left" duration="60.0" sign="right"/>
             </Sequence>
 
-            <!-- <Sequence name="Mission 3: Parking">
+            <Sequence name="Mission 3: Parking">
                 <LaneDetect mode="center" duration="0.75" sign=""/>
                 <LaneDetect mode="just-turn-left" duration="60.0" sign="left"/>    
                 <Parking mode="dynamic"/>
                 <LaneDetect mode="just-turn-left" duration="10.0" sign="left"/>
             </Sequence>
 
-            <Sequence name="Mission 4: Level Crossing">
+            <!-- <Sequence name="Mission 4: Level Crossing">
                 <LaneDetect mode="center" duration="300.0" sign="stop"/>
                 <CrossWalk/>
                 <LaneDetect mode="center" duration="300.0" sign="tunnel"/>

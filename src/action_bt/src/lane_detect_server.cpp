@@ -994,6 +994,15 @@ public:
         float duration = goal->duration;
         current_mode_ = goal->mode;
         target_sign_ = goal->sign;
+        float speed_override = goal->speed;
+
+        // Override linear speed if provided
+        if (speed_override > 0.0)
+
+        {
+            max_linear_speed = speed_override;
+            ROS_INFO("Linear speed overridden to: %.2f m/s", max_linear_speed);
+        }
 
         // Convert old intersection-dynamic to new intersection mode
         if (current_mode_ == "intersection-dynamic")
@@ -1048,6 +1057,10 @@ public:
         ROS_INFO("LaneDetect Server: Mode=%s, Duration=%.2f, Sign=%s",
                  current_mode_.c_str(), duration,
                  target_sign_.empty() ? "none" : target_sign_.c_str());
+
+        ROS_INFO("Linear speed: %.2f m/s (from %s)",
+                 max_linear_speed,
+                 speed_override > 0.0 ? "goal override" : "YAML config");
 
         // Launch sign detection if needed
         if (current_mode_ == "intersection" ||
