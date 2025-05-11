@@ -15,3 +15,13 @@ construction:
   turn_precision_threshold: 0.1 # Precision threshold for turn completion (rad)
   turn_linear_speed: 0.08 # Linear speed for turning (m/s)
   desired_radius: 0.2 # Factor to adjust turn radius (m)
+
+  # Ramp mode parameters
+  ramp_rotation_angle: 60.0 # Angle to rotate in ramp mode (degrees)
+  ramp_front_threshold: 0.375 # Distance threshold for front detection (m)
+  ramp_side_threshold: 0.45 # Distance threshold for side detection (m)
+  ramp_final_threshold: 0.30 # Distance threshold for final detection (m)
+  pivot_angular_speed: 0.5 # Angular speed for pivot turns (rad/s)
+
+  # Robot parameters
+  wheel_base: 0.160 # Distance between wheels (m) - TurtleBot3 Burger default

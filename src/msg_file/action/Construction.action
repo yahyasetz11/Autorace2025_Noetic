@@ -1,5 +1,5 @@
 # Goal
-# No parameters needed for now as per requirements
+string mode 
 ---
 # Result
 bool success       # Whether construction mission succeeded

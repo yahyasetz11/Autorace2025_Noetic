@@ -25,8 +25,8 @@ private:
     sensor_msgs::LaserScan latest_scan_;
     bool scan_received_;
 
-    // Algorithm phases
-    enum Phase
+    // Algorithm phases for rounded mode
+    enum RoundedPhase
     {
         MOVE_TO_WALL,
         TURN_LEFT_90,
@@ -39,7 +39,29 @@ private:
         TURN_LEFT_180,
         COMPLETED
     };
-    Phase current_phase_;
+
+    // Algorithm phases for ramp mode
+    enum RampPhase
+    {
+        RAMP_MOVE_TO_WALL,
+        RAMP_TURN_LEFT_PIVOT,
+        RAMP_MOVE_UNTIL_300_CLEAR,
+        RAMP_TURN_RIGHT_PIVOT_1,
+        RAMP_MOVE_UNTIL_270_CLEAR,
+        RAMP_TURN_RIGHT_PIVOT_2,
+        RAMP_MOVE_UNTIL_60_CLEAR,
+        RAMP_TURN_LEFT_PIVOT_FINAL,
+        RAMP_COMPLETED
+    };
+
+    double wheel_base_;
+    bool flag = false;
+
+    RoundedPhase current_rounded_phase_;
+    RampPhase current_ramp_phase_;
+
+    // Mode selection
+    std::string mode_; // "rounded" or "ramp"
 
     // Movement parameters
     double linear_speed_;
@@ -53,6 +75,13 @@ private:
     double turn_precision_threshold_;
     double turn_linear_speed_;
     double desired_radius_;
+
+    // Ramp mode parameters
+    double ramp_rotation_angle_;
+    double ramp_front_threshold_;
+    double ramp_side_threshold_;
+    double ramp_final_threshold_;
+    double pivot_angular_speed_;
 
     // Turn tracking
     double turn_target_angle_;
@@ -68,8 +97,10 @@ public:
     ConstructionServer(std::string name) : as_(nh_, name, boost::bind(&ConstructionServer::executeCB, this, _1), false),
                                            action_name_(name),
                                            scan_received_(false),
-                                           current_phase_(MOVE_TO_WALL),
-                                           current_angle_(0.0)
+                                           current_rounded_phase_(MOVE_TO_WALL),
+                                           current_ramp_phase_(RAMP_MOVE_TO_WALL),
+                                           current_angle_(0.0),
+                                           mode_("rounded") // Default mode
     {
         // Define config file paths (using the src/config directory)
         speed_config_path_ = ros::package::getPath("action_bt") + "/../config/speed_conf.yaml";
@@ -97,35 +128,19 @@ public:
         ROS_INFO("  front_scan_angle: %.2f degrees", front_scan_angle_);
         ROS_INFO("  side_scan_angle: %.2f degrees", side_scan_angle_);
         ROS_INFO("  turn_precision_threshold: %.2f rad", turn_precision_threshold_);
+
+        ROS_INFO("Ramp mode parameters:");
+        ROS_INFO("  ramp_rotation_angle: %.2f degrees", ramp_rotation_angle_);
+        ROS_INFO("  ramp_front_threshold: %.2f m", ramp_front_threshold_);
+        ROS_INFO("  ramp_side_threshold: %.2f m", ramp_side_threshold_);
+        ROS_INFO("  ramp_final_threshold: %.2f m", ramp_final_threshold_);
+        ROS_INFO("  pivot_angular_speed: %.2f rad/s", pivot_angular_speed_);
     }
 
     ~ConstructionServer()
     {
         // Stop robot when server shuts down
         stopRobot();
-    }
-
-    void loadSpeedParameters()
-    {
-        try
-        {
-            YAML::Node config = YAML::LoadFile(speed_config_path_);
-
-            // Extract parameters with defaults if not found
-            // For consistency, we use max_linear_speed and max_angular_speed from speed_conf.yaml
-            linear_speed_ = config["max_linear_speed"] ? config["max_linear_speed"].as<double>() * 0.5 : 0.08;
-            angular_speed_ = config["max_angular_speed"] ? config["max_angular_speed"].as<double>() * 0.7 : 0.5;
-
-            ROS_INFO("Successfully loaded speed parameters from: %s", speed_config_path_.c_str());
-        }
-        catch (const YAML::Exception &e)
-        {
-            ROS_ERROR("Error loading speed configuration YAML file: %s", e.what());
-            ROS_WARN("Using default speed parameters");
-            // Default values
-            linear_speed_ = 0.08;
-            angular_speed_ = 0.5;
-        }
     }
 
     void loadConstructionParameters()
@@ -159,6 +174,16 @@ public:
                 turn_linear_speed_ = construction["turn_linear_speed"] ? construction["turn_linear_speed"].as<double>() : 0.08;
 
                 desired_radius_ = construction["desired_radius"] ? construction["desired_radius"].as<double>() : 0.5;
+
+                // Load ramp mode parameters
+                ramp_rotation_angle_ = construction["ramp_rotation_angle"] ? construction["ramp_rotation_angle"].as<double>() : 60.0;
+                ramp_front_threshold_ = construction["ramp_front_threshold"] ? construction["ramp_front_threshold"].as<double>() : 0.3;
+                ramp_side_threshold_ = construction["ramp_side_threshold"] ? construction["ramp_side_threshold"].as<double>() : 0.35;
+                ramp_final_threshold_ = construction["ramp_final_threshold"] ? construction["ramp_final_threshold"].as<double>() : 0.30;
+                pivot_angular_speed_ = construction["pivot_angular_speed"] ? construction["pivot_angular_speed"].as<double>() : 0.5;
+
+                // Load robot parameters
+                wheel_base_ = construction["wheel_base"] ? construction["wheel_base"].as<double>() : 0.160;
             }
             else
             {
@@ -171,8 +196,18 @@ public:
                 turn_linear_speed_ = 0.08;
                 desired_radius_ = 0.5;
 
-                ROS_INFO("Successfully loaded construction parameters from: %s", construction_config_path_.c_str());
+                // Default ramp parameters
+                ramp_rotation_angle_ = 60.0;
+                ramp_front_threshold_ = 0.3;
+                ramp_side_threshold_ = 0.35;
+                ramp_final_threshold_ = 0.30;
+                pivot_angular_speed_ = 0.5;
+
+                // Default robot parameters
+                wheel_base_ = 0.160;
             }
+
+            ROS_INFO("Successfully loaded construction parameters from: %s", construction_config_path_.c_str());
         }
         catch (const YAML::Exception &e)
         {
@@ -185,11 +220,43 @@ public:
             turn_precision_threshold_ = 0.1;
             turn_linear_speed_ = 0.08;
             desired_radius_ = 0.5;
+
+            // Default ramp parameters
+            ramp_rotation_angle_ = 60.0;
+            ramp_front_threshold_ = 0.3;
+            ramp_side_threshold_ = 0.35;
+            ramp_final_threshold_ = 0.30;
+            pivot_angular_speed_ = 0.5;
+
+            // Default robot parameters
+            wheel_base_ = 0.160;
         }
     }
 
-    void
-    laserCallback(const sensor_msgs::LaserScan::ConstPtr &scan)
+    void loadSpeedParameters()
+    {
+        try
+        {
+            YAML::Node config = YAML::LoadFile(speed_config_path_);
+
+            // Extract parameters with defaults if not found
+            // For consistency, we use max_linear_speed and max_angular_speed from speed_conf.yaml
+            linear_speed_ = config["max_linear_speed"] ? config["max_linear_speed"].as<double>() * 0.5 : 0.08;
+            angular_speed_ = config["max_angular_speed"] ? config["max_angular_speed"].as<double>() * 0.7 : 0.5;
+
+            ROS_INFO("Successfully loaded speed parameters from: %s", speed_config_path_.c_str());
+        }
+        catch (const YAML::Exception &e)
+        {
+            ROS_ERROR("Error loading speed configuration YAML file: %s", e.what());
+            ROS_WARN("Using default speed parameters");
+            // Default values
+            linear_speed_ = 0.08;
+            angular_speed_ = 0.5;
+        }
+    }
+
+    void laserCallback(const sensor_msgs::LaserScan::ConstPtr &scan)
     {
         latest_scan_ = *scan;
         scan_received_ = true;
@@ -409,33 +476,50 @@ public:
                           cmd.linear.x, cmd.angular.z, radius);
     }
 
-    void executeCB(const msg_file::ConstructionGoalConstPtr &goal)
+    // New function for pivot turning (one wheel stationary)
+    // New function for pivot turning (one wheel stationary)
+    void pivotTurn(bool pivotLeft, double angle_degrees)
     {
-        bool success = true;
-        phase_start_time_ = ros::Time::now();
-        ros::Rate r(10); // 10Hz
+        geometry_msgs::Twist cmd;
 
-        // Reset phase to beginning
-        current_phase_ = MOVE_TO_WALL;
+        // Convert angle to radians
+        double angle_rad = angle_degrees * M_PI / 180.0;
 
-        ROS_INFO("Starting Construction Mission");
+        // For a true pivot turn, we need both linear and angular velocity
+        // The relationship is: v = ω * r, where r is the wheel base for pivot turns
 
-        // Wait for first laser scan to arrive
-        ros::Time start_wait = ros::Time::now();
-        while (!scan_received_ && ros::ok())
+        if (pivotLeft)
         {
-            if ((ros::Time::now() - start_wait).toSec() > 5.0)
-            {
-                ROS_ERROR("No laser scan received after 5 seconds. Aborting mission.");
-                as_.setAborted();
-                return;
-            }
-            ROS_INFO_THROTTLE(1, "Waiting for laser scan data...");
-            ros::spinOnce();
-            r.sleep();
+            // Left pivot: left wheel stationary, right wheel moves forward
+            // Robot pivots around the left wheel
+            // Linear velocity = angular velocity * (wheel_base/2)
+            cmd.angular.z = pivot_angular_speed_;
+            cmd.linear.x = pivot_angular_speed_ * (wheel_base_ / 2.0);
+        }
+        else
+        {
+            // Right pivot: right wheel stationary, left wheel moves forward
+            // Robot pivots around the right wheel
+            // Linear velocity = angular velocity * (wheel_base/2)
+            cmd.angular.z = -pivot_angular_speed_;
+            cmd.linear.x = pivot_angular_speed_ * (wheel_base_ / 2.0);
         }
 
-        while (ros::ok() && current_phase_ != COMPLETED)
+        // Calculate time needed for the turn
+        double turn_time = fabs(angle_rad / pivot_angular_speed_);
+
+        cmd_vel_pub_.publish(cmd);
+
+        ROS_INFO("Pivot turn: %s pivot, %.1f degrees, linear=%.3f, angular=%.2f, time=%.2f",
+                 pivotLeft ? "left" : "right", angle_degrees, cmd.linear.x, cmd.angular.z, turn_time);
+    }
+
+    void executeRoundedMode()
+    {
+        ros::Rate r(10);
+        bool success = true;
+
+        while (ros::ok() && current_rounded_phase_ != COMPLETED)
         {
             // Check if preempted
             if (as_.isPreemptRequested() || !ros::ok())
@@ -448,7 +532,7 @@ public:
             }
 
             // Process current phase
-            switch (current_phase_)
+            switch (current_rounded_phase_)
             {
             case MOVE_TO_WALL:
             {
@@ -462,7 +546,7 @@ public:
                 {
                     // Close enough to the wall, stop and transition to next phase
                     stopRobot();
-                    current_phase_ = TURN_LEFT_90;
+                    current_rounded_phase_ = TURN_LEFT_90;
                     turn_start_time_ = ros::Time::now();
                     current_angle_ = 0;
                     ROS_INFO("Reached wall. Starting left turn.");
@@ -490,7 +574,7 @@ public:
                 {
                     // Turn complete, stop and transition to next phase
                     stopRobot();
-                    current_phase_ = ALIGN_WITH_RIGHT_WALL;
+                    current_rounded_phase_ = ALIGN_WITH_RIGHT_WALL;
                     ROS_INFO("Left turn complete. Aligning with the Right Wall.");
                 }
                 else
@@ -509,7 +593,7 @@ public:
                 {
                     // We're parallel, move to next phase
                     stopRobot();
-                    current_phase_ = MOVE_UNTIL_LEFT_FRONT_CLEAR;
+                    current_rounded_phase_ = MOVE_UNTIL_LEFT_FRONT_CLEAR;
                     ROS_INFO("Aligned with wall");
                 }
                 else
@@ -542,7 +626,7 @@ public:
                 {
                     // We're parallel, move to next phase
                     stopRobot();
-                    current_phase_ = MOVE_UNTIL_RIGHT_FRONT_CLEAR;
+                    current_rounded_phase_ = MOVE_UNTIL_RIGHT_FRONT_CLEAR;
                     ROS_INFO("Aligned with right wall");
                 }
                 else
@@ -579,7 +663,7 @@ public:
                 {
                     // Right front is clear, stop and transition to next phase
                     stopRobot();
-                    current_phase_ = TURN_RIGHT_180;
+                    current_rounded_phase_ = TURN_RIGHT_180;
                     turn_start_time_ = ros::Time::now();
                     current_angle_ = 0;
                     ROS_INFO("Right front is clear. Starting right turn 180.");
@@ -615,7 +699,7 @@ public:
                 {
                     // Turn complete, stop and transition to next phase
                     stopRobot();
-                    current_phase_ = MOVE_UNTIL_LEFT_FRONT_CLEAR;
+                    current_rounded_phase_ = MOVE_UNTIL_LEFT_FRONT_CLEAR;
                     ROS_INFO("Radius right turn complete. Moving until left front is clear.");
                 }
                 else
@@ -638,7 +722,7 @@ public:
                 {
                     // Left front is clear, stop and transition to next phase
                     stopRobot();
-                    current_phase_ = TURN_LEFT_LAST;
+                    current_rounded_phase_ = TURN_LEFT_LAST;
                     turn_start_time_ = ros::Time::now();
                     current_angle_ = 0;
                     ROS_INFO("Left front is clear. Starting left turn 180.");
@@ -666,7 +750,7 @@ public:
                 {
                     // Turn complete, stop and transition to next phase
                     stopRobot();
-                    current_phase_ = COMPLETED;
+                    current_rounded_phase_ = COMPLETED;
                     ROS_INFO("Left turn complete. Starting left turn 180.");
                 }
                 else
@@ -700,7 +784,7 @@ public:
                 {
                     // Turn complete, stop and transition to next phase
                     stopRobot();
-                    current_phase_ = COMPLETED;
+                    current_rounded_phase_ = COMPLETED;
                     ROS_INFO("Radius right turn complete. Mission completed.");
                 }
                 else
@@ -724,12 +808,302 @@ public:
 
             r.sleep();
         }
+    }
 
-        if (success)
+    void executeRampMode()
+    {
+        ros::Rate r(10);
+        bool success = true;
+
+        while (ros::ok() && current_ramp_phase_ != RAMP_COMPLETED)
+        {
+            // Check if preempted
+            if (as_.isPreemptRequested() || !ros::ok())
+            {
+                ROS_INFO("%s: Preempted", action_name_.c_str());
+                as_.setPreempted();
+                success = false;
+                stopRobot();
+                break;
+            }
+
+            // Process current phase
+            switch (current_ramp_phase_)
+            {
+            case RAMP_MOVE_TO_WALL:
+            {
+                feedback_.current_phase = "Ramp: Moving to wall";
+                double front_dist = getDistanceInRange(0.0); // 0 degree
+
+                ROS_INFO_THROTTLE(0.5, "Ramp Phase: Move to wall, front distance: %.2f (threshold: %.2f)",
+                                  front_dist, ramp_front_threshold_);
+
+                if (front_dist <= ramp_front_threshold_)
+                {
+                    stopRobot();
+                    current_ramp_phase_ = RAMP_TURN_LEFT_PIVOT;
+                    turn_start_time_ = ros::Time::now();
+                    ROS_INFO("Reached wall. Starting left pivot turn.");
+                }
+                else
+                {
+                    moveForward();
+                }
+                break;
+            }
+
+            case RAMP_TURN_LEFT_PIVOT:
+            {
+                feedback_.current_phase = "Ramp: Left pivot turn 60 degrees";
+
+                double angle_rad = ramp_rotation_angle_ * M_PI / 180.0;
+                double turn_duration = fabs(angle_rad / pivot_angular_speed_);
+                double elapsed = (ros::Time::now() - turn_start_time_).toSec();
+
+                ROS_INFO_THROTTLE(0.5, "Ramp Phase: Left pivot turn, elapsed: %.2f, target: %.2f",
+                                  elapsed, turn_duration);
+
+                if (elapsed >= turn_duration)
+                {
+                    stopRobot();
+                    current_ramp_phase_ = RAMP_MOVE_UNTIL_300_CLEAR;
+                    ROS_INFO("Left pivot complete. Moving until 300° clear.");
+                }
+                else
+                {
+                    pivotTurn(true, ramp_rotation_angle_);
+                }
+                break;
+            }
+
+            case RAMP_MOVE_UNTIL_300_CLEAR:
+            {
+                feedback_.current_phase = "Ramp: Moving until 300° clear";
+                // Check at 300° (360-60)
+                double dist_300 = getDistanceInRange(360.0 - ramp_rotation_angle_);
+
+                ROS_INFO_THROTTLE(0.5, "Ramp Phase: Move until 300° clear, distance: %.2f (threshold: %.2f)",
+                                  dist_300, ramp_side_threshold_);
+
+                if (dist_300 > ramp_side_threshold_)
+                {
+                    stopRobot();
+                    current_ramp_phase_ = RAMP_TURN_RIGHT_PIVOT_1;
+                    turn_start_time_ = ros::Time::now();
+                    ROS_INFO("300° clear. Starting first right pivot turn.");
+                }
+                else
+                {
+                    moveForward();
+                }
+                break;
+            }
+
+            case RAMP_TURN_RIGHT_PIVOT_1:
+            {
+                feedback_.current_phase = "Ramp: First right pivot turn 60 degrees";
+
+                double angle_rad = ramp_rotation_angle_ * M_PI / 180.0;
+                double turn_duration = fabs(angle_rad / pivot_angular_speed_);
+                double elapsed = (ros::Time::now() - turn_start_time_).toSec();
+
+                ROS_INFO_THROTTLE(0.5, "Ramp Phase: First right pivot turn, elapsed: %.2f, target: %.2f",
+                                  elapsed, turn_duration);
+
+                if (elapsed >= turn_duration)
+                {
+                    stopRobot();
+                    current_ramp_phase_ = RAMP_MOVE_UNTIL_270_CLEAR;
+                    ROS_INFO("First right pivot complete. Moving until 270° clear.");
+                }
+                else
+                {
+                    pivotTurn(false, ramp_rotation_angle_);
+                }
+                break;
+            }
+
+            case RAMP_MOVE_UNTIL_270_CLEAR:
+            {
+                feedback_.current_phase = "Ramp: Moving until 270° clear";
+                // Check at 270° (360-90)
+                double dist_270 = getDistanceInRange(270.0);
+
+                if (flag && dist_270 > ramp_side_threshold_)
+                {
+                    stopRobot();
+                    current_ramp_phase_ = RAMP_TURN_RIGHT_PIVOT_2;
+                    turn_start_time_ = ros::Time::now();
+                    ROS_INFO("270° clear. Starting second right pivot turn.");
+                }
+                else
+                {
+                    moveForward();
+                    if (!flag && dist_270 > ramp_side_threshold_)
+                    {
+                        flag = false;
+                        ROS_INFO("Flag = false");
+                    }
+                    else
+                    {
+                        flag = true;
+                        ROS_INFO("Flag obstacle detected");
+                    }
+                }
+
+                ROS_INFO_THROTTLE(0.5, "Ramp Phase: Move until 270° clear, distance: %.2f (threshold: %.2f)",
+                                  dist_270, ramp_side_threshold_);
+                break;
+            }
+
+            case RAMP_TURN_RIGHT_PIVOT_2:
+            {
+                feedback_.current_phase = "Ramp: Second right pivot turn 60 degrees";
+
+                double angle_rad = ramp_rotation_angle_ * M_PI / 180.0;
+                double turn_duration = fabs(angle_rad / pivot_angular_speed_);
+                double elapsed = (ros::Time::now() - turn_start_time_).toSec();
+
+                ROS_INFO_THROTTLE(0.5, "Ramp Phase: Second right pivot turn, elapsed: %.2f, target: %.2f",
+                                  elapsed, turn_duration);
+
+                if (elapsed >= turn_duration)
+                {
+                    stopRobot();
+                    current_ramp_phase_ = RAMP_MOVE_UNTIL_60_CLEAR;
+                    ROS_INFO("Second right pivot complete. Moving until 60° clear.");
+                }
+                else
+                {
+                    pivotTurn(false, ramp_rotation_angle_);
+                }
+                break;
+            }
+
+            case RAMP_MOVE_UNTIL_60_CLEAR:
+            {
+                feedback_.current_phase = "Ramp: Moving until 60° clear";
+                // Check at 60°
+                double dist_60 = getDistanceInRange(ramp_rotation_angle_);
+
+                ROS_INFO_THROTTLE(0.5, "Ramp Phase: Move until 60° clear, distance: %.2f (threshold: %.2f)",
+                                  dist_60, ramp_side_threshold_);
+
+                if (dist_60 > ramp_side_threshold_)
+                {
+                    stopRobot();
+                    current_ramp_phase_ = RAMP_TURN_LEFT_PIVOT_FINAL;
+                    turn_start_time_ = ros::Time::now();
+                    ROS_INFO("60° clear. Starting final left pivot turn.");
+                }
+                else
+                {
+                    moveForward();
+                }
+                break;
+            }
+
+            case RAMP_TURN_LEFT_PIVOT_FINAL:
+            {
+                feedback_.current_phase = "Ramp: Final left pivot turn 60 degrees";
+
+                double angle_rad = ramp_rotation_angle_ * M_PI / 180.0;
+                double turn_duration = fabs(angle_rad / pivot_angular_speed_);
+                double elapsed = (ros::Time::now() - turn_start_time_).toSec();
+
+                ROS_INFO_THROTTLE(0.5, "Ramp Phase: Final left pivot turn, elapsed: %.2f, target: %.2f",
+                                  elapsed, turn_duration);
+
+                if (elapsed >= turn_duration)
+                {
+                    stopRobot();
+                    current_ramp_phase_ = RAMP_COMPLETED;
+                    ROS_INFO("Final pivot complete. Ramp mission completed.");
+                }
+                else
+                {
+                    pivotTurn(true, ramp_rotation_angle_);
+                }
+                break;
+            }
+
+            case RAMP_COMPLETED:
+                // This should never execute, but just in case
+                break;
+            }
+
+            // Calculate time elapsed for feedback
+            feedback_.time_elapsed = (ros::Time::now() - phase_start_time_).toSec();
+
+            // Publish feedback
+            as_.publishFeedback(feedback_);
+
+            r.sleep();
+        }
+    }
+
+    void executeCB(const msg_file::ConstructionGoalConstPtr &goal)
+    {
+        bool success = true;
+        phase_start_time_ = ros::Time::now();
+
+        // Get mode from goal (default to "rounded" if not specified)
+        mode_ = goal->mode;
+        if (mode_.empty())
+        {
+            mode_ = "rounded";
+        }
+
+        // Reset phase counters
+        current_rounded_phase_ = MOVE_TO_WALL;
+        current_ramp_phase_ = RAMP_MOVE_TO_WALL;
+
+        ROS_INFO("Starting Construction Mission with mode: %s", mode_.c_str());
+
+        // Wait for first laser scan to arrive
+        ros::Time start_wait = ros::Time::now();
+        while (!scan_received_ && ros::ok())
+        {
+            if ((ros::Time::now() - start_wait).toSec() > 5.0)
+            {
+                ROS_ERROR("No laser scan received after 5 seconds. Aborting mission.");
+                as_.setAborted();
+                return;
+            }
+            ROS_INFO_THROTTLE(1, "Waiting for laser scan data...");
+            ros::spinOnce();
+            ros::Duration(0.1).sleep();
+        }
+
+        // Execute the appropriate mode
+        if (mode_ == "rounded")
+        {
+            executeRoundedMode();
+        }
+        else if (mode_ == "ramp")
+        {
+            executeRampMode();
+        }
+        else
+        {
+            ROS_ERROR("Unknown mode: %s. Aborting mission.", mode_.c_str());
+            as_.setAborted();
+            return;
+        }
+
+        // Check if mission completed successfully
+        if ((mode_ == "rounded" && current_rounded_phase_ == COMPLETED) ||
+            (mode_ == "ramp" && current_ramp_phase_ == RAMP_COMPLETED))
         {
             result_.success = true;
             ROS_INFO("%s: Construction mission succeeded", action_name_.c_str());
             as_.setSucceeded(result_);
+        }
+        else
+        {
+            result_.success = false;
+            ROS_INFO("%s: Construction mission failed", action_name_.c_str());
+            as_.setAborted(result_);
         }
     }
 };

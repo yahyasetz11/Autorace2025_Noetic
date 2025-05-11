@@ -21,16 +21,21 @@ public:
 
     static BT::PortsList providedPorts()
     {
-        // No ports needed for now as per requirements
-        return {};
+        return {
+            BT::InputPort<std::string>("mode", "rounded", "Construction mode: rounded or ramp")};
     }
 
     BT::NodeStatus tick() override
     {
-        // Create and send the goal (empty as per requirements)
-        msg_file::ConstructionGoal goal;
+        // Get mode parameter
+        std::string mode = "rounded";
+        getInput("mode", mode);
 
-        ROS_INFO("Sending construction mission goal");
+        // Create and send the goal
+        msg_file::ConstructionGoal goal;
+        goal.mode = mode;
+
+        ROS_INFO("Sending construction mission goal with mode: %s", mode.c_str());
         client_.sendGoal(goal);
 
         // Wait for action to complete with a reasonable timeout

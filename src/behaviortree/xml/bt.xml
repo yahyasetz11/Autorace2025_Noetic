@@ -2,16 +2,14 @@
     <BehaviorTree ID="LaneDetectBT">
         <Sequence name="BehaviorTree">
             <Sequence name="Mission 1: Intersection">
-                <LaneDetect mode="center" sign="intersection"/>    
-                <LaneDetect mode="intersection" duration="300.0" sign=""/>   
-                <LaneDetect mode="center" duration="5.0" sign=""/> 
+                <!-- <LaneDetect mode="center" sign="intersection"/>    
+                <LaneDetect mode="intersection" duration="300.0" sign=""/>    -->
                 <LaneDetect mode="center" sign="construction"/> 
-                <LaneDetect mode="center" duration="2.0" sign=""/>
                 <LaneDetect mode="just-turn-left" duration="60.0" sign="right"/>   
             </Sequence>
 
             <Sequence name="Mission 2: Construction">
-                <Construction/> 
+                <Construction mode="ramp"/> 
                 <LaneDetect mode="just-turn-left" duration="60.0" sign="right"/>
             </Sequence>
 
