@@ -14,7 +14,7 @@
             </Sequence> -->
 
             <Sequence name="Mission 3: Parking">
-                <LaneDetect mode="center" duration="10" sign="parking" speed="0.1"/>
+                <LaneDetect mode="center" duration="3" sign="parking" speed="0.1"/>
                 <LaneDetect mode="just-turn-left" duration="60.0" sign="left" speed="0.18"/>    
                 <Parking mode="dynamic"/>
                 <LaneDetect mode="just-turn-left" duration="10.0" sign="left"/>

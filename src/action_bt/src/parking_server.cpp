@@ -350,10 +350,46 @@ public:
             angular_speed = -angular_speed;
 
         // Convert angle to radians
-        double angle_rad = fabs(angle) * M_PI * 1.05 / 180.0;
+        double angle_rad = fabs(angle) * M_PI * 1.1 / 180.0;
 
         // Set the angular speed
         cmd.angular.z = angular_speed;
+
+        // Calculate time to rotate
+        double time_to_rotate = angle_rad / fabs(angular_speed);
+
+        ROS_INFO("Rotating %.2f degrees at %.2f rad/s for %.2f seconds",
+                 angle, angular_speed, time_to_rotate);
+
+        // Start rotation
+        ros::Time start = ros::Time::now();
+        ros::Rate rate(50); // 50Hz
+
+        while ((ros::Time::now() - start).toSec() < time_to_rotate && ros::ok())
+        {
+            cmd_vel_pub_.publish(cmd);
+            rate.sleep();
+            ros::spinOnce();
+        }
+
+        // Stop rotation
+        stopRobot();
+        ROS_INFO("Rotation completed");
+    }
+
+    void rotateWithRadius(double angle)
+    {
+        geometry_msgs::Twist cmd;
+        double angular_speed = rotation_speed_;
+        if (angle < 0)
+            angular_speed = -angular_speed;
+
+        // Convert angle to radians
+        double angle_rad = fabs(angle) * M_PI * 1.1 / 180.0;
+
+        // Set the angular speed
+        cmd.angular.z = angular_speed;
+        cmd.linear.x = 0.1;
 
         // Calculate time to rotate
         double time_to_rotate = angle_rad / fabs(angular_speed);
@@ -449,7 +485,7 @@ public:
             ROS_INFO("No obstacles detected, defaulting to right side parking");
         }
 
-        // *** NEW STEP: Move forward for 1 second to ensure proper alignment ***
+        // Optional: Move forward briefly for alignment
         ROS_INFO("Moving forward for 1 second to ensure proper alignment");
         geometry_msgs::Twist cmd;
         cmd.linear.x = forward_speed_;
@@ -457,79 +493,72 @@ public:
         ros::Time start_time = ros::Time::now();
         ros::Rate delay_rate(20); // 20Hz rate
 
-        while (ros::ok() && (ros::Time::now() - start_time).toSec() < 1.0)
+        while (ros::ok() && (ros::Time::now() - start_time).toSec() < 1)
         {
             cmd_vel_pub_.publish(cmd);
             delay_rate.sleep();
         }
-
-        // Stop after delay
         stopRobot();
-        ros::Duration(0.5).sleep(); // Small pause
+        ros::Duration(0.2).sleep(); // Small pause
 
-        // Measure the distance behind using LIDAR (180 degrees - rear)
-        double rear_distance = 0;
+        // Measure the distance using LIDAR
+        double side_distance = 0;
         if (scan_received_)
         {
-            int rear_index = latest_scan_.ranges.size() / 2; // 180 degrees (back)
-            int range = 10;                                  // Check a few rays around the back to get more reliable measurement
+            // Determine which side to measure based on parking direction
+            int side_index = (direction == "left") ? latest_scan_.ranges.size() * 3 / 4 : // 90 degrees (right obstacle)
+                                 latest_scan_.ranges.size() / 4;                          // 270 degrees (left obstacle)
+
+            int range = 10; // Check a few rays for reliable measurement
             int valid_readings = 0;
 
-            for (int i = rear_index - range / 2; i <= rear_index + range / 2; i++)
+            for (int i = side_index - range / 2; i <= side_index + range / 2; i++)
             {
-                int idx = (i + latest_scan_.ranges.size()) % latest_scan_.ranges.size(); // Handle wrap-around
+                int idx = (i + latest_scan_.ranges.size()) % latest_scan_.ranges.size();
                 if (!std::isinf(latest_scan_.ranges[idx]) && !std::isnan(latest_scan_.ranges[idx]))
                 {
-                    rear_distance += latest_scan_.ranges[idx];
+                    side_distance += latest_scan_.ranges[idx];
                     valid_readings++;
                 }
             }
 
             if (valid_readings > 0)
             {
-                rear_distance /= valid_readings; // Average of valid readings
-                ROS_INFO("Measured rear distance: %.2f meters", rear_distance);
+                side_distance /= valid_readings; // Average of valid readings
+                ROS_INFO("Measured side distance: %.2f meters", side_distance);
             }
             else
             {
-                // If no valid readings, use a default value
-                rear_distance = 1.0; // Default 1 meter
-                ROS_WARN("No valid rear distance measurements, using default: %.2f meters", rear_distance);
+                side_distance = 0.5; // Default
+                ROS_WARN("No valid side distance measurements, using default: %.2f meters", side_distance);
             }
         }
-        else
-        {
-            // If no scan received, use a default
-            rear_distance = 1.0;
-            ROS_WARN("No scan data received, using default rear distance: %.2f meters", rear_distance);
-        }
 
-        // Turn based on direction
-        double angle = 90.0; // Left rotation
-        if (direction == "right")
-        {
-            angle = -90.0; // Right rotation
-        }
+        // Turn to face the parking spot
+        double angle = (direction == "left") ? -90.0 : 90.0;
         rotate(angle);
+        ros::Duration(0.2).sleep(); // Small pause
 
-        // Move forward for parking distance (could be parameter from yaml)
-        // Using a fraction of the measured rear distance to ensure we don't hit anything
-        double forward_distance = std::min(parking_forward_distance_, rear_distance * 0.7);
-        ROS_INFO("Moving forward %.2f meters into parking spot", forward_distance);
-        moveForward(forward_distance, forward_speed_);
+        // NEW: Move BACKWARD into parking spot
+        double parking_distance = std::min(parking_forward_distance_, abs(side_distance - parking_forward_distance_));
+        ROS_INFO("Moving BACKWARD %.2f meters into parking spot", parking_distance);
+        moveForward(parking_distance, -backward_speed_); // Negative speed for backward
 
         // Wait in parking spot
         ROS_INFO("Waiting in parking spot for %.1f seconds", sleep_time_);
         ros::Duration(sleep_time_).sleep();
 
-        // Reverse out by the same distance
-        ROS_INFO("Backing out of parking spot");
-        moveForward(forward_distance, -backward_speed_);
+        // NEW: Exit with radius turn (combined forward + rotation)
+        ROS_INFO("Exiting parking spot with radius turn");
 
-        // Turn back to face original direction
-        rotate(angle); // Same angle brings us back to original orientation
+        // Exit from the parking spot
+        rotateWithRadius(angle);
+        ros::Duration(0.2).sleep(); // Small pause
 
-        // Move forward to exit completely
+        // Stop after turn
+        stopRobot();
+
+        // Optional: Move forward a bit more to fully exit
         ROS_INFO("Moving forward to clear parking area");
         moveForward(0.15, forward_speed_);
     }

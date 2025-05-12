@@ -9,10 +9,10 @@ parking:
   backward_speed: 0.12
   rotation_speed: 0.6
 
-  parking_forward_distance: 0.3
+  parking_forward_distance: 0.4
 
   sleep_time: 1.0
-  scan_threshold_distance: 0.5
+  scan_threshold_distance: 0.35
 
   # Color thresholds for lane detection
   # Yellow lane thresholds
