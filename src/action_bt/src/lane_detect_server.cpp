@@ -439,6 +439,13 @@ public:
             ROS_INFO("Cross/Stop sign detected!");
             sign_detected_ = true;
         }
+        // ADD NEW CONDITION HERE for parking sign detection
+        else if (target_sign_ == "parking" && last_sign_data_ == 1)
+        {
+            // Parking sign
+            ROS_INFO("Parking sign detected!");
+            sign_detected_ = true;
+        }
     }
 
     // Launch sign detection node based on target sign or mode
@@ -462,6 +469,10 @@ public:
         else if (target_sign_ == "cross")
         {
             mission = "stop";
+        }
+        else if (target_sign_ == "parking")
+        {
+            mission = "parking"; // Add this line for parking mission
         }
         else
         {
