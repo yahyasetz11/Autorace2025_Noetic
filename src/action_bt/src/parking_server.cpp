@@ -85,8 +85,8 @@ private:
             scan_threshold_distance_ = config["parking"]["scan_threshold_distance"] ? config["parking"]["scan_threshold_distance"].as<double>() : 0.5;
 
             // Color thresholds for yellow lane detection
-            hue_yellow_l_ = config["parking"]["hue_yellow_l"] ? config["parking"]["hue_yellow_l"].as<int>() : 20;
-            hue_yellow_h_ = config["parking"]["hue_yellow_h"] ? config["parking"]["hue_yellow_h"].as<int>() : 40;
+            hue_yellow_l_ = config["parking"]["hue_yellow_l"] ? config["parking"]["hue_yellow_l"].as<int>() : 10;
+            hue_yellow_h_ = config["parking"]["hue_yellow_h"] ? config["parking"]["hue_yellow_h"].as<int>() : 50;
             saturation_yellow_l_ = config["parking"]["saturation_yellow_l"] ? config["parking"]["saturation_yellow_l"].as<int>() : 100;
             saturation_yellow_h_ = config["parking"]["saturation_yellow_h"] ? config["parking"]["saturation_yellow_h"].as<int>() : 255;
             value_yellow_l_ = config["parking"]["value_yellow_l"] ? config["parking"]["value_yellow_l"].as<int>() : 100;
@@ -111,8 +111,8 @@ private:
             scan_threshold_distance_ = 0.5;
 
             // Default yellow color thresholds
-            hue_yellow_l_ = 20;
-            hue_yellow_h_ = 40;
+            hue_yellow_l_ = 10;
+            hue_yellow_h_ = 50;
             saturation_yellow_l_ = 100;
             saturation_yellow_h_ = 255;
             value_yellow_l_ = 100;
@@ -350,7 +350,7 @@ public:
             angular_speed = -angular_speed;
 
         // Convert angle to radians
-        double angle_rad = fabs(angle) * M_PI * 1.2 / 180.0;
+        double angle_rad = fabs(angle) * M_PI * 1.05 / 180.0;
 
         // Set the angular speed
         cmd.angular.z = angular_speed;

@@ -11,7 +11,7 @@ parking:
 
   parking_forward_distance: 0.3
 
-  sleep_time: 3.0
+  sleep_time: 1.0
   scan_threshold_distance: 0.5
 
   # Color thresholds for lane detection
