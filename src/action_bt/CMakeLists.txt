@@ -77,6 +77,10 @@ add_executable(cross_walk_server src/cross_walk_server.cpp)
 target_link_libraries(cross_walk_server ${catkin_LIBRARIES} ${YAML_CPP_LIBRARIES})
 add_dependencies(cross_walk_server ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
+add_executable(traffic_light_server src/traffic_light_server.cpp)
+target_link_libraries(traffic_light_server ${catkin_LIBRARIES} ${YAML_CPP_LIBRARIES})
+add_dependencies(traffic_light_server ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+
 # Install targets
 install(TARGETS 
   lane_detect_server
@@ -87,6 +91,7 @@ install(TARGETS
   align_server
   parking_server
   cross_walk_server
+  traffic_light_server
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
@@ -100,6 +105,7 @@ install(TARGETS
   align_server
   parking_server
   cross_walk_server
+  traffic_light_server
   DESTINATION lib/${PROJECT_NAME}
 )
 

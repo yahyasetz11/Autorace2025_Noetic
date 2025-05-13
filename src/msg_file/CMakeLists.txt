@@ -31,6 +31,7 @@ add_action_files(
   Align.action
   Parking.action
   CrossWalk.action
+  TrafficLight.action
 )
 
 ## Generate added messages and services

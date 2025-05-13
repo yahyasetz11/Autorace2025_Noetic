@@ -1,0 +1,12 @@
+# Goal
+float32 timeout    # Maximum time to wait if no traffic light detected (in seconds)
+---
+# Result
+bool success       # Whether traffic light detection succeeded
+string final_state # The final state when action completed (RED, GREEN, TIMEOUT)
+---
+# Feedback
+float32 time_elapsed  # Time elapsed
+string current_state  # Current detected state (RED, GREEN, NONE)
+int32 red_pixels      # Number of red pixels detected
+int32 green_pixels    # Number of green pixels detected

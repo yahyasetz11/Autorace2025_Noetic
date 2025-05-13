@@ -10,6 +10,7 @@
 #include "align_action_node.h"
 #include "parking_action_node.h"
 #include "cross_walk_action_node.h"
+#include "traffic_light_action_node.h"
 
 int main(int argc, char **argv)
 {
@@ -28,6 +29,7 @@ int main(int argc, char **argv)
     factory.registerNodeType<AlignActionNode>("Align");
     factory.registerNodeType<ParkingActionNode>("Parking");
     factory.registerNodeType<CrossWalkActionNode>("CrossWalk");
+    factory.registerNodeType<TrafficLightActionNode>("TrafficLight");
 
     std::cout << "Registered BT Nodes:\n";
     for (const auto &m : factory.manifests())
