@@ -206,8 +206,8 @@ public:
         {
             int idx = (i + latest_scan_.ranges.size()) % latest_scan_.ranges.size(); // Handle wrap-around
             if (latest_scan_.ranges[idx] < scan_threshold_distance_ &&
-                !std::isinf(latest_scan_.ranges[idx]) &&
-                !std::isnan(latest_scan_.ranges[idx]))
+                ((!std::isinf(latest_scan_.ranges[idx]) && !std::isnan(latest_scan_.ranges[idx])) ||
+                 latest_scan_.ranges[idx] > 0.05))
             {
                 obstacle_left_ = true;
                 ROS_INFO("Obstacle detected on left side at %.2f meters", latest_scan_.ranges[idx]);
@@ -221,8 +221,8 @@ public:
         {
             int idx = (i + latest_scan_.ranges.size()) % latest_scan_.ranges.size(); // Handle wrap-around
             if (latest_scan_.ranges[idx] < scan_threshold_distance_ &&
-                !std::isinf(latest_scan_.ranges[idx]) &&
-                !std::isnan(latest_scan_.ranges[idx]))
+                ((!std::isinf(latest_scan_.ranges[idx]) && !std::isnan(latest_scan_.ranges[idx])) ||
+                 latest_scan_.ranges[idx] > 0.05))
             {
                 obstacle_right_ = true;
                 ROS_INFO("Obstacle detected on right side at %.2f meters", latest_scan_.ranges[idx]);
