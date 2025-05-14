@@ -1,15 +1,15 @@
 <root main_tree_to_execute="LaneDetectBT">
     <BehaviorTree ID="LaneDetectBT">
         <Sequence name="BehaviorTree">
-            <Sequence name="Mission 0: Traffic Light">
+            <!-- <Sequence name="Mission 0: Traffic Light">
                 <TrafficLight timeout="60.0"/>
-            </Sequence>
-            <!-- <Sequence name="Mission 1: Intersection">
-                <LaneDetect mode="center" sign="intersection"/>    
+            </Sequence> -->
+            <Sequence name="Mission 1: Intersection">
+                <!-- <LaneDetect mode="center" sign="intersection"/>     -->
                 <LaneDetect mode="intersection" duration="300.0" sign=""/>   
                 <LaneDetect mode="center" sign="construction" speed="0.1"/> 
-                <LaneDetect mode="just-turn-left" duration="60.0" sign="right"/ speed="0.18">   
-            </Sequence> -->
+                <LaneDetect mode="just-turn-left" duration="60.0" sign="right" speed="0.18"/>   
+            </Sequence>
 
             <!-- <Sequence name="Mission 2: Construction">
                 <Construction mode="ramp"/> 

@@ -99,6 +99,17 @@ private:
     std::string speed_config_path_;
     std::string color_config_path_;
 
+    // Intersection enhancement variables
+    bool use_sign_finding_;             // Toggle for sign-finding sequence
+    bool use_x_sign_;                   // Toggle for X sign behavior
+    int sign_finding_attempts_;         // Counter for forward-backward attempts
+    bool sign_finding_forward_;         // Whether we're moving forward or backward
+    std::string default_direction_;     // Default direction if no sign detected
+    ros::Time sign_finding_start_time_; // Start time for sign-finding movement
+    double sign_finding_timeout_;       // Timeout for each sign-finding movement
+    double sign_no_x_wait_time_;        // Time to wait before simulating X sign
+    bool in_sign_finding_mode_;         // Whether we're in sign-finding mode
+
 public:
     LaneDetectServer(std::string name) : as_(nh_, name, boost::bind(&LaneDetectServer::executeCB, this, _1), false),
                                          action_name_(name),
@@ -206,6 +217,29 @@ public:
             pid_ki_ = config["pid_ki"] ? config["pid_ki"].as<double>() : 0.0;
             pid_kd_ = config["pid_kd"] ? config["pid_kd"].as<double>() : 0.0;
             pid_kp_ *= -1;
+
+            // Load enhancement parameters
+            if (config["use_sign_finding"])
+                use_sign_finding_ = config["use_sign_finding"].as<bool>();
+
+            if (config["use_x_sign"])
+                use_x_sign_ = config["use_x_sign"].as<bool>();
+
+            if (config["default_direction"])
+                default_direction_ = config["default_direction"].as<std::string>();
+
+            if (config["sign_finding_timeout"])
+                sign_finding_timeout_ = config["sign_finding_timeout"].as<double>();
+
+            if (config["sign_no_x_wait_time"])
+                sign_no_x_wait_time_ = config["sign_no_x_wait_time"].as<double>();
+
+            ROS_INFO("Intersection enhancement parameters:");
+            ROS_INFO("  use_sign_finding: %s", use_sign_finding_ ? "true" : "false");
+            ROS_INFO("  use_x_sign: %s", use_x_sign_ ? "true" : "false");
+            ROS_INFO("  default_direction: %s", default_direction_.c_str());
+            ROS_INFO("  sign_finding_timeout: %.2f", sign_finding_timeout_);
+            ROS_INFO("  sign_no_x_wait_time: %.2f", sign_no_x_wait_time_);
         }
         catch (const YAML::Exception &e)
         {
@@ -221,6 +255,15 @@ public:
             pid_kp_ = -5.0;
             pid_ki_ = 0.05;
             pid_kd_ = 0.2;
+
+            use_sign_finding_ = true;
+            use_x_sign_ = true;
+            sign_finding_attempts_ = 0;
+            sign_finding_forward_ = true;
+            default_direction_ = "left";
+            in_sign_finding_mode_ = false;
+            sign_finding_timeout_ = 5.0; // 5 seconds per movement
+            sign_no_x_wait_time_ = 2.0;  // 2 seconds wait if use_x_sign is false
         }
     }
 
@@ -514,6 +557,82 @@ public:
             kill(detect_sign_process_id_, SIGTERM);
             detect_sign_process_id_ = -1;
         }
+    }
+
+    bool performSignFinding()
+    {
+        // If sign detected, stop sign finding
+        if (sign_detected_ && !intersection_turn_direction_.empty())
+        {
+            in_sign_finding_mode_ = false;
+            stopRobot();
+            ROS_INFO("Sign detected during finding sequence: %s",
+                     intersection_turn_direction_.c_str());
+            return true;
+        }
+
+        // Check if current movement has timed out
+        double movement_elapsed = (ros::Time::now() - sign_finding_start_time_).toSec();
+
+        if (movement_elapsed > sign_finding_timeout_)
+        {
+            // Movement timed out, switch direction or increment attempts
+            if (sign_finding_forward_)
+            {
+                // Switch to backward
+                sign_finding_forward_ = false;
+                sign_finding_start_time_ = ros::Time::now();
+                ROS_INFO("Sign finding: Switching to backward movement (attempt %d)",
+                         sign_finding_attempts_);
+            }
+            else
+            {
+                // Completed one forward-backward cycle
+                sign_finding_attempts_++;
+
+                if (sign_finding_attempts_ >= 3)
+                {
+                    // Exceeded maximum attempts, use default direction
+                    intersection_turn_direction_ = default_direction_;
+                    actual_driving_mode_ = default_direction_;
+                    sign_detected_ = true;
+                    in_sign_finding_mode_ = false;
+                    stopRobot();
+                    ROS_INFO("Sign finding failed after 3 attempts, using default direction: %s",
+                             default_direction_.c_str());
+                    return true;
+                }
+                else
+                {
+                    // Start next cycle
+                    sign_finding_forward_ = true;
+                    sign_finding_start_time_ = ros::Time::now();
+                    ROS_INFO("Sign finding: Starting attempt %d", sign_finding_attempts_ + 1);
+                }
+            }
+        }
+
+        // Set movement based on current direction
+        geometry_msgs::Twist cmd;
+        cmd.linear.x = sign_finding_forward_ ? 0.05 : -0.05; // Slow movement
+        cmd.angular.z = 0.0;
+        cmd_vel_pub_.publish(cmd);
+
+        ROS_INFO_THROTTLE(1.0, "Sign finding: %s movement, elapsed: %.1f/%.1f, attempt %d/3",
+                          sign_finding_forward_ ? "Forward" : "Backward",
+                          movement_elapsed, sign_finding_timeout_,
+                          sign_finding_attempts_);
+
+        return false;
+    }
+
+    // Helper method to stop the robot
+    void stopRobot()
+    {
+        geometry_msgs::Twist cmd;
+        cmd.linear.x = 0.0;
+        cmd.angular.z = 0.0;
+        cmd_vel_pub_.publish(cmd);
     }
 
     void detectLane()
@@ -1009,7 +1128,6 @@ public:
 
         // Override linear speed if provided
         if (speed_override > 0.0)
-
         {
             max_linear_speed = speed_override;
             ROS_INFO("Linear speed overridden to: %.2f m/s", max_linear_speed);
@@ -1036,6 +1154,12 @@ public:
         intersection_retry_count_ = 0;
         intersection_turn_direction_ = "";
         intersection_yaw_recorded_ = false;
+
+        // Reset intersection enhancement variables
+        sign_finding_attempts_ = 0;
+        sign_finding_forward_ = true;
+        in_sign_finding_mode_ = false;
+        ros::Time no_x_wait_start; // For tracking X sign simulation time
 
         // Check if this is a turning mode
         is_turn_mode_ = (current_mode_ == "just-turn-left" || current_mode_ == "just-turn-right");
@@ -1152,7 +1276,7 @@ public:
                 }
             }
 
-            // New intersection mode success condition
+            // Intersection mode success condition
             if (current_mode_ == "intersection")
             {
                 // Check the state of intersection mode
@@ -1221,6 +1345,74 @@ public:
             // Special handlers for intersection mode state transitions
             if (current_mode_ == "intersection")
             {
+                // SIGN FINDING SEQUENCE - Add our new code here
+                // Check for the initial sequence (before detecting any sign)
+                if (!intersection_initial_turn_done_ && !sign_detected_)
+                {
+                    // If sign-finding is enabled and we've waited a bit without detecting a sign
+                    if (use_sign_finding_ &&
+                        !in_sign_finding_mode_ &&
+                        both_lanes_detected_ && // Only start when both lanes detected
+                        (ros::Time::now() - start_time_).toSec() > 5.0)
+                    {
+                        // Start sign-finding mode
+                        in_sign_finding_mode_ = true;
+                        sign_finding_start_time_ = ros::Time::now();
+                        sign_finding_forward_ = true;
+                        sign_finding_attempts_ = 1;
+                        ROS_INFO("Starting sign-finding sequence");
+                    }
+
+                    // If in sign-finding mode, perform the movement sequence
+                    if (in_sign_finding_mode_)
+                    {
+                        // This will handle the sign-finding movement and logic
+                        bool sign_found = performSignFinding();
+
+                        if (sign_found)
+                        {
+                            ROS_INFO("Sign found or defaulted to: %s", intersection_turn_direction_.c_str());
+                        }
+                        else
+                        {
+                            // Skip the normal lane following when in sign-finding mode
+                            // Update feedback
+                            feedback_.time_elapsed = (ros::Time::now() - start_time_).toSec();
+                            as_.publishFeedback(feedback_);
+                            r.sleep();
+                            continue;
+                        }
+                    }
+                }
+
+                // X SIGN BYPASS - Add our code for handling X sign toggle
+                // Handle the state after initial turn completed but before X sign
+                if (intersection_initial_turn_done_ && !intersection_x_sign_seen_)
+                {
+                    if (!use_x_sign_)
+                    {
+                        // Skip X sign detection and simulate after a brief wait
+                        if (!no_x_wait_start.isValid())
+                        {
+                            no_x_wait_start = ros::Time::now();
+                            ROS_INFO("X sign detection disabled, will simulate after %.1f seconds",
+                                     sign_no_x_wait_time_);
+                        }
+
+                        if ((ros::Time::now() - no_x_wait_start).toSec() >= sign_no_x_wait_time_)
+                        {
+                            // Simulate X sign detection
+                            intersection_x_sign_seen_ = true;
+                            intersection_retry_count_ = 0;
+                            intersection_initial_turn_done_ = false;
+                            actual_driving_mode_ = intersection_turn_direction_;
+                            ROS_INFO("Simulated X sign detection, continuing with %s turn",
+                                     intersection_turn_direction_.c_str());
+                        }
+                    }
+                }
+
+                // EXISTING LOGIC - Keep the original state transitions
                 if (!intersection_initial_turn_done_ && sign_detected_ && intersection_flag_ >= 1)
                 {
                     // Check if initial turn has one flag

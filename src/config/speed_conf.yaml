@@ -12,3 +12,10 @@ speed_reduction_factor: 0.7 # Factor to reduce speed when turning
 pid_kp: 10 # Proportional gain
 pid_ki: 0 # Integral gain
 pid_kd: 0 # Derivative gain
+
+# Intersection enhancement parameters
+use_sign_finding: true # Enable/disable sign-finding sequence
+use_x_sign: false # Enable/disable X sign behavior
+default_direction: "left" # Default direction if no sign detected
+sign_finding_timeout: 5.0 # Timeout for each sign-finding movement (seconds)
+sign_no_x_wait_time: 2.0 # Time to wait when use_x_sign is false (seconds)
