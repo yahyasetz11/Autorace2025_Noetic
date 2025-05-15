@@ -1,5 +1,5 @@
 # Speed control parameters
-max_linear_speed: 0.18 # Maximum linear speed (m/s)
+max_linear_speed: 0.15 # Maximum linear speed (m/s)
 max_angular_speed: 1.8 # Maximum angular speed (rad/s)
 steering_sensitivity: 5.0 # Steering gain for lane following
 non_linear_factor: 1.5 # Non-linear factor for steering response
@@ -9,9 +9,9 @@ min_linear_speed: 0.05 # Minimum linear speed during sharp turns
 speed_reduction_factor: 0.7 # Factor to reduce speed when turning
 
 # PID controller parameters
-pid_kp: 10 # Proportional gain
+pid_kp: 6.5 # Proportional gain 7 good (little bit higher)
 pid_ki: 0 # Integral gain
-pid_kd: 0 # Derivative gain
+pid_kd: 0.4 # Derivative gain
 
 # Intersection enhancement parameters
 use_sign_finding: true # Enable/disable sign-finding sequence

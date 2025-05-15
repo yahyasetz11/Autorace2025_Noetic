@@ -198,13 +198,21 @@ public:
         // Check for obstacles on left and right sides
         int left_index = latest_scan_.ranges.size() / 4;      // Approximately 90 degrees (left side)
         int right_index = latest_scan_.ranges.size() * 3 / 4; // Approximately 270 degrees (right side)
-        int range = 10;                                       // Number of rays to check on each side
+        int range = 25;                                       // Number of rays to check on each side
 
         // Check left side
         obstacle_left_ = false;
+        ROS_INFO("Front : %.2f m", latest_scan_.ranges[0]);
+        ROS_INFO("Left : %.2f m", latest_scan_.ranges[left_index]);
+        ROS_INFO("Left : %.2f m", latest_scan_.ranges[right_index]);
         for (int i = left_index - range / 2; i <= left_index + range / 2; i++)
         {
             int idx = (i + latest_scan_.ranges.size()) % latest_scan_.ranges.size(); // Handle wrap-around
+            if (latest_scan_.ranges[idx] < 0.05)
+            {
+                latest_scan_.ranges[idx] = 999;
+            }
+
             if (latest_scan_.ranges[idx] < scan_threshold_distance_ &&
                 ((!std::isinf(latest_scan_.ranges[idx]) && !std::isnan(latest_scan_.ranges[idx])) ||
                  latest_scan_.ranges[idx] > 0.05))
@@ -220,6 +228,11 @@ public:
         for (int i = right_index - range / 2; i <= right_index + range / 2; i++)
         {
             int idx = (i + latest_scan_.ranges.size()) % latest_scan_.ranges.size(); // Handle wrap-around
+            if (latest_scan_.ranges[idx] < 0.05)
+            {
+                latest_scan_.ranges[idx] = 999;
+            }
+
             if (latest_scan_.ranges[idx] < scan_threshold_distance_ &&
                 ((!std::isinf(latest_scan_.ranges[idx]) && !std::isnan(latest_scan_.ranges[idx])) ||
                  latest_scan_.ranges[idx] > 0.05))
@@ -350,7 +363,7 @@ public:
             angular_speed = -angular_speed;
 
         // Convert angle to radians
-        double angle_rad = fabs(angle) * M_PI * 1.1 / 180.0;
+        double angle_rad = fabs(angle) * M_PI * 1 / 180.0;
 
         // Set the angular speed
         cmd.angular.z = angular_speed;
@@ -385,11 +398,11 @@ public:
             angular_speed = -angular_speed;
 
         // Convert angle to radians
-        double angle_rad = fabs(angle) * M_PI * 1.1 / 180.0;
+        double angle_rad = fabs(angle) * M_PI * 1 / 180.0;
 
         // Set the angular speed
         cmd.angular.z = angular_speed;
-        cmd.linear.x = 0.1;
+        cmd.linear.x = 0.12;
 
         // Calculate time to rotate
         double time_to_rotate = angle_rad / fabs(angular_speed);
@@ -493,7 +506,7 @@ public:
         ros::Time start_time = ros::Time::now();
         ros::Rate delay_rate(20); // 20Hz rate
 
-        while (ros::ok() && (ros::Time::now() - start_time).toSec() < 1)
+        while (ros::ok() && (ros::Time::now() - start_time).toSec() < 1.5)
         {
             cmd_vel_pub_.publish(cmd);
             delay_rate.sleep();

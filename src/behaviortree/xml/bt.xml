@@ -4,24 +4,25 @@
             <!-- <Sequence name="Mission 0: Traffic Light">
                 <TrafficLight timeout="60.0"/>
             </Sequence> -->
-            <Sequence name="Mission 1: Intersection">
-                <!-- <LaneDetect mode="center" sign="intersection"/>     -->
+            <!-- <Sequence name="Mission 1: Intersection">
+                <LaneDetect mode="center" sign="intersection"/>    
+                <LaneDetect mode="center" sign="intersection"/>
                 <LaneDetect mode="intersection" duration="300.0" sign=""/>   
                 <LaneDetect mode="center" sign="construction" speed="0.1"/> 
-                <LaneDetect mode="just-turn-left" duration="60.0" sign="right" speed="0.18"/>   
+                <LaneDetect mode="just-turn-left" duration="60.0" sign="right" speed="0.1"/>   
             </Sequence>
 
-            <!-- <Sequence name="Mission 2: Construction">
-                <Construction mode="ramp"/> 
+            <Sequence name="Mission 2: Construction">
+                <Construction mode="rounded"/> 
                 <LaneDetect mode="just-turn-left" duration="60.0" sign="right"/>
             </Sequence> -->
 
-            <!-- <Sequence name="Mission 3: Parking">
+            <Sequence name="Mission 3: Parking">
                 <LaneDetect mode="center" duration="3" sign="parking" speed="0.1"/>
-                <LaneDetect mode="just-turn-left" duration="60.0" sign="left" speed="0.18"/>    
+                <LaneDetect mode="just-turn-left" duration="60.0" sign="left" speed="0.12"/>    
                 <Parking mode="dynamic"/>
                 <LaneDetect mode="just-turn-left" duration="10.0" sign="left"/>
-            </Sequence> -->
+            </Sequence>
 
             <!-- <Sequence name="Mission 4: Level Crossing">
                 <LaneDetect mode="center" duration="300.0" sign="stop"/>
