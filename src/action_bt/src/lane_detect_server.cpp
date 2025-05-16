@@ -791,7 +791,7 @@ public:
                 // After detecting left/right sign, start turning
                 effective_mode = actual_driving_mode_; // "left" or "right"
             }
-            else if (intersection_x_sign_seen_ && intersection_retry_count_ == 0)
+            else if (intersection_x_sign_seen_ && (intersection_retry_count_ <= 1))
             {
                 // After seeing X sign, retry the turn
                 effective_mode = actual_driving_mode_; // Same direction as before
@@ -991,6 +991,10 @@ public:
                 {
                     intersection_flag_++;
                     ROS_INFO("Intersection flag incremented to: %d", intersection_flag_);
+                    // if (current_mode_ == "intersection" && intersection_x_sign_seen_ && !intersection_retry_count_ && intersection_initial_turn_done_)
+                    // {
+                    //     intersection_retry_count_ = 1;
+                    // }
                 }
 
                 last_transition_time_ = current_time;
@@ -1302,7 +1306,7 @@ public:
                         double yaw_diff = calculateYawDifference(current_yaw_, intersection_initial_yaw_);
 
                         // Check if we've turned approximately 180 degrees (with tolerance)
-                        if (fabs(fabs(yaw_diff) - 180.0) <= yaw_tolerance_)
+                        if (fabs(yaw_diff - (-90.0)) <= yaw_tolerance_)
                         {
                             ROS_INFO("Intersection success: both lanes detected and yaw diff=%.2f degrees", yaw_diff);
                             intersection_condition = true;
@@ -1401,11 +1405,15 @@ public:
 
                         if ((ros::Time::now() - no_x_wait_start).toSec() >= sign_no_x_wait_time_)
                         {
-                            // Simulate X sign detection
+                            // WAY 1
+                            // intersection_flag_ = 0;
+                            // current_mode_ = intersection_turn_direction_;
+
+                            // WAY 2
                             intersection_x_sign_seen_ = true;
-                            intersection_retry_count_ = 0;
-                            intersection_initial_turn_done_ = false;
+                            intersection_retry_count_ = 0; // Reset retry count
                             actual_driving_mode_ = intersection_turn_direction_;
+
                             ROS_INFO("Simulated X sign detection, continuing with %s turn",
                                      intersection_turn_direction_.c_str());
                         }
@@ -1424,9 +1432,9 @@ public:
                 else if (intersection_initial_turn_done_ && intersection_x_sign_seen_ && intersection_retry_count_ == 0)
                 {
                     // Start retry turn
-                    intersection_retry_count_ = 1;
-                    intersection_flag_ = 0; // Reset flag counter
+                    intersection_flag_ = 0;
                     actual_driving_mode_ = intersection_turn_direction_;
+                    intersection_retry_count_ = 1;
                     ROS_INFO("Starting retry turn: %s", intersection_turn_direction_.c_str());
                 }
             }
