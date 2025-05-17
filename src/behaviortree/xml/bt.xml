@@ -1,14 +1,25 @@
 <root main_tree_to_execute="LaneDetectBT">
     <BehaviorTree ID="LaneDetectBT">
         <Sequence name="BehaviorTree">
+            <Sequence name="TRIAL">
+                <Move mode="forward" until="timer" distance="2.0"/>
+                <Rotate direction="counterclockwise" angle="90.0"/>
+                <Move mode="forward" until="timer" distance="2.0"/>
+                <Rotate direction="counterclockwise" angle="90.0"/>
+                <Move mode="forward" until="timer" distance="2.0"/>
+                <Rotate direction="counterclockwise" angle="90.0"/>
+                <Move mode="forward" until="timer" distance="2.0"/>
+                <Rotate direction="counterclockwise" angle="90.0"/>
+                <Rotate direction="align" angle="0.0"/>
+            </Sequence>
             <!-- <Sequence name="Mission 0: Traffic Light">
                 <TrafficLight timeout="60.0"/>
             </Sequence> -->
-            <Sequence name="Mission 1: Intersection">
+            <!-- <Sequence name="Mission 1: Intersection">
                 <LaneDetect mode="center" sign="intersection"/>
-                <!-- <LaneDetect mode="center" sign="" duration="1.0"/>  -->
+                <LaneDetect mode="center" sign="" duration="1.0"/> 
                 <LaneDetect mode="intersection" duration="300.0" sign=""/>   
-            </Sequence>
+            </Sequence> -->
 
             <!-- <Sequence name="Mission 2: Construction">
                 <LaneDetect mode="center" sign="construction" speed="0.1"/> 

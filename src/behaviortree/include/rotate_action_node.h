@@ -1,4 +1,3 @@
-// Create a new file at src/behaviortree/include/rotate_action_node.h with this content:
 #ifndef ROTATE_ACTION_NODE_H
 #define ROTATE_ACTION_NODE_H
 
@@ -23,8 +22,8 @@ public:
     static BT::PortsList providedPorts()
     {
         return {
-            BT::InputPort<std::string>("direction", "clockwise", "Rotation direction: clockwise or counterclockwise"),
-            BT::InputPort<float>("angle", 90.0, "Angle to rotate in degrees")};
+            BT::InputPort<std::string>("direction", "clockwise", "Rotation direction: clockwise, counterclockwise, or align"),
+            BT::InputPort<float>("angle", 90.0, "Angle to rotate in degrees (for clockwise/counterclockwise) or target yaw angle (for align mode)")};
     }
 
     BT::NodeStatus tick() override
@@ -41,16 +40,32 @@ public:
         goal.direction = direction;
         goal.angle = angle;
 
-        ROS_INFO("Sending goal - Direction: %s, Angle: %.2f degrees",
-                 direction.c_str(), angle);
+        if (direction == "align")
+        {
+            ROS_INFO("Sending goal - Direction: %s, Target Yaw: %.2f degrees",
+                     direction.c_str(), angle);
+        }
+        else
+        {
+            ROS_INFO("Sending goal - Direction: %s, Angle: %.2f degrees",
+                     direction.c_str(), angle);
+        }
 
         client_.sendGoal(goal);
 
-        // Wait for action to complete with a reasonable timeout
-        // Calculate timeout based on angle and angular speed with some buffer
-        double timeout = (angle / 45.0) * 5.0; // rough estimate: 5 seconds per 45 degrees
-        if (timeout < 10.0)
-            timeout = 10.0; // minimum timeout
+        // Calculate timeout based on mode and parameters
+        double timeout;
+        if (direction == "align")
+        {
+            timeout = 30.0; // Fixed timeout for align mode
+        }
+        else
+        {
+            // Calculate timeout based on angle with some buffer
+            timeout = (fabs(angle) / 45.0) * 5.0; // rough estimate: 5 seconds per 45 degrees
+            if (timeout < 10.0)
+                timeout = 10.0; // minimum timeout
+        }
 
         bool finished_before_timeout = client_.waitForResult(ros::Duration(timeout));
 

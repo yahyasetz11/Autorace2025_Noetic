@@ -62,7 +62,7 @@ target_link_libraries(move_server ${catkin_LIBRARIES} ${YAML_CPP_LIBRARIES})
 add_dependencies(move_server ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 add_executable(rotate_server src/rotate_server.cpp)
-target_link_libraries(rotate_server ${catkin_LIBRARIES} ${YAML_CPP_LIBRARIES})
+target_link_libraries(rotate_server ${catkin_LIBRARIES} ${YAML_CPP_LIBRARIES} pid)
 add_dependencies(rotate_server ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 add_executable(align_server src/align_server.cpp)

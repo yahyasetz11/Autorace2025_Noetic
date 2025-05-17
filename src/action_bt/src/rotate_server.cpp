@@ -4,9 +4,11 @@
 #include <msg_file/RotateAction.h>
 #include <geometry_msgs/Twist.h>
 #include <nav_msgs/Odometry.h>
+#include <msg_file/EulerAngles.h>
 #include <tf/transform_datatypes.h>
 #include <yaml-cpp/yaml.h>
 #include <cmath>
+#include "pid.hpp" // Include PID controller header
 
 // Define constants
 #define DEG_TO_RAD 0.017453293  // PI/180.0
@@ -24,38 +26,55 @@ private:
     // ROS communication
     ros::Publisher cmd_vel_pub_;
     ros::Subscriber odom_sub_;
+    ros::Subscriber euler_sub_; // New subscriber for yaw_tracker
 
     // Parameters
-    double angular_speed_; // rad/s
+    double angular_speed_; // Maximum angular speed (rad/s)
 
-    // Odometry data
-    double current_yaw_; // in radians
-    bool odom_received_;
+    // PID controller and parameters
+    PID_t pid_controller_;
+    double pid_kp_;
+    double pid_ki_;
+    double pid_kd_;
+
+    // Yaw tracking
+    double current_yaw_; // in degrees
+    double initial_yaw_; // in degrees
+    bool yaw_received_;
 
     // Action parameters
     std::string direction_;
-    double target_angle_deg_;
+    double target_angle_deg_; // Used for both rotation amount and target yaw
 
 public:
     RotateServer(std::string name) : as_(nh_, name, boost::bind(&RotateServer::executeCB, this, _1), false),
                                      action_name_(name),
-                                     odom_received_(false),
-                                     angular_speed_(0.5) // Default value in case config loading fails
+                                     yaw_received_(false),
+                                     angular_speed_(0.5), // Default value
+                                     pid_kp_(1.0),
+                                     pid_ki_(0.0),
+                                     pid_kd_(0.0)
     {
-        // Load speed from config file
-        loadSpeedConfig();
+        // Load parameters from config file
+        loadConfig();
+
+        // Initialize PID controller
+        pid_param(&pid_controller_, pid_kp_, pid_ki_, pid_kd_);
+        pid_controller_.setpoint = 0.0; // Will be set in executeCB
 
         // Publishers
         cmd_vel_pub_ = nh_.advertise<geometry_msgs::Twist>("/cmd_vel", 10);
 
         // Subscribers
         odom_sub_ = nh_.subscribe("/odom", 1, &RotateServer::odomCallback, this);
+        euler_sub_ = nh_.subscribe("/euler_angles", 1, &RotateServer::eulerCallback, this);
 
         as_.start();
-        ROS_INFO("Rotate Action Server Started with angular_speed: %.2f rad/s", angular_speed_);
+        ROS_INFO("Rotate Action Server Started with angular_speed: %.2f rad/s, PID: [%.2f, %.2f, %.2f]",
+                 angular_speed_, pid_kp_, pid_ki_, pid_kd_);
     }
 
-    void loadSpeedConfig()
+    void loadConfig()
     {
         try
         {
@@ -67,26 +86,38 @@ public:
             }
 
             // Build the path to the config file
-            std::string config_path = package_path + "/../config/speed_conf.yaml";
+            std::string config_path = package_path + "/../config/rotate_params.yaml";
 
             // Load the YAML file
             YAML::Node config = YAML::LoadFile(config_path);
 
-            // Extract angular speed
+            // Extract parameters
             if (config["angular_speed"])
             {
                 angular_speed_ = config["angular_speed"].as<double>();
-                ROS_INFO("Loaded angular_speed = %.2f from config file", angular_speed_);
             }
-            else
+
+            // Extract PID parameters
+            if (config["pid_kp"])
             {
-                ROS_WARN("Could not find 'angular_speed' in config file, using default: %.2f", angular_speed_);
+                pid_kp_ = -1 * config["pid_kp"].as<double>();
             }
+            if (config["pid_ki"])
+            {
+                pid_ki_ = config["pid_ki"].as<double>();
+            }
+            if (config["pid_kd"])
+            {
+                pid_kd_ = config["pid_kd"].as<double>();
+            }
+
+            ROS_INFO("Loaded parameters from %s", config_path.c_str());
         }
         catch (const std::exception &e)
         {
             ROS_ERROR("Error loading config file: %s", e.what());
-            ROS_WARN("Using default angular_speed: %.2f", angular_speed_);
+            ROS_WARN("Using default parameters: angular_speed=%.2f, PID=[%.2f, %.2f, %.2f]",
+                     angular_speed_, pid_kp_, pid_ki_, pid_kd_);
         }
     }
 
@@ -96,20 +127,35 @@ public:
         stopRobot();
     }
 
-    void odomCallback(const nav_msgs::Odometry::ConstPtr &msg)
+    // Callback for odometry data (keeping for backward compatibility)
+    void odomCallback(const nav_msgs::Odometry::ConstPtr &odom_msg)
     {
-        // Extract yaw from quaternion
-        tf::Quaternion q(
-            msg->pose.pose.orientation.x,
-            msg->pose.pose.orientation.y,
-            msg->pose.pose.orientation.z,
-            msg->pose.pose.orientation.w);
-        tf::Matrix3x3 m(q);
-        double roll, pitch, yaw;
-        m.getRPY(roll, pitch, yaw);
+        // Only use if we haven't received yaw from the yaw_tracker
+        if (!yaw_received_)
+        {
+            // Extract quaternion orientation
+            tf::Quaternion q(
+                odom_msg->pose.pose.orientation.x,
+                odom_msg->pose.pose.orientation.y,
+                odom_msg->pose.pose.orientation.z,
+                odom_msg->pose.pose.orientation.w);
 
-        current_yaw_ = yaw;
-        odom_received_ = true;
+            // Convert to Euler angles
+            tf::Matrix3x3 m(q);
+            double roll, pitch, yaw;
+            m.getRPY(roll, pitch, yaw);
+
+            // Convert to degrees
+            current_yaw_ = yaw * RAD_TO_DEG;
+        }
+    }
+
+    // New callback for the yaw_tracker's euler angles message
+    void eulerCallback(const msg_file::EulerAngles::ConstPtr &euler_msg)
+    {
+        // Update current yaw (already in degrees from yaw_tracker)
+        current_yaw_ = euler_msg->yaw;
+        yaw_received_ = true;
     }
 
     void stopRobot()
@@ -132,14 +178,25 @@ public:
         ROS_INFO_THROTTLE(1.0, "Sending rotation command: angular.z = %.2f", angular_vel);
     }
 
-    // Normalize angle to [-π, π]
+    // Normalize angle to [-180, 180]
     double normalizeAngle(double angle)
     {
-        while (angle > M_PI)
-            angle -= 2.0 * M_PI;
-        while (angle < -M_PI)
-            angle += 2.0 * M_PI;
+        while (angle > 180.0)
+            angle -= 360.0;
+        while (angle < -180.0)
+            angle += 360.0;
         return angle;
+    }
+
+    // Calculate angular error (for PID controller)
+    double calculateAngularError(double current, double target)
+    {
+        double error = target - current;
+
+        // Normalize to [-180, 180]
+        error = normalizeAngle(error);
+
+        return error;
     }
 
     void executeCB(const msg_file::RotateGoalConstPtr &goal)
@@ -149,18 +206,18 @@ public:
 
         // Get parameters from goal
         direction_ = goal->direction;
-        target_angle_deg_ = fabs(goal->angle); // Make sure angle is positive
+        target_angle_deg_ = goal->angle; // Used for both rotation amount and target yaw
 
         // Validate parameters
-        if (direction_ != "clockwise" && direction_ != "counterclockwise")
+        if (direction_ != "clockwise" && direction_ != "counterclockwise" && direction_ != "align")
         {
-            ROS_ERROR("Invalid direction: %s. Must be 'clockwise' or 'counterclockwise'", direction_.c_str());
+            ROS_ERROR("Invalid direction: %s. Must be 'clockwise', 'counterclockwise', or 'align'", direction_.c_str());
             result_.success = false;
             as_.setAborted(result_);
             return;
         }
 
-        if (target_angle_deg_ <= 0.0)
+        if (direction_ != "align" && target_angle_deg_ <= 0.0)
         {
             ROS_ERROR("Invalid angle: %.2f. Must be greater than 0", target_angle_deg_);
             result_.success = false;
@@ -169,53 +226,57 @@ public:
         }
 
         // Add small tolerance for completion
-        double angle_tolerance_deg = 2.0; // 2 degrees tolerance
+        double angle_tolerance_deg = 1.0; // 2 degrees tolerance
 
-        // Set rotation speed based on direction
-        double rotate_speed;
-        if (direction_ == "clockwise")
-        {
-            rotate_speed = -angular_speed_; // Negative for clockwise
-        }
-        else
-        {                                  // counterclockwise
-            rotate_speed = angular_speed_; // Positive for counterclockwise
-        }
-
-        ROS_INFO("Rotate Server: Direction=%s, Angle=%.2f degrees, Speed=%.2f",
-                 direction_.c_str(), target_angle_deg_, rotate_speed);
-
-        // Wait until we receive odometry data
+        // Wait until we receive yaw data
         ros::Time start_wait = ros::Time::now();
-        while (!odom_received_ && (ros::Time::now() - start_wait).toSec() < 5.0)
+        while (!yaw_received_ && (ros::Time::now() - start_wait).toSec() < 5.0)
         {
-            ROS_INFO_THROTTLE(1, "Waiting for odometry data...");
+            ROS_INFO_THROTTLE(1, "Waiting for yaw data...");
+            ros::spinOnce();
             r.sleep();
         }
 
-        if (!odom_received_)
+        if (!yaw_received_)
         {
-            ROS_ERROR("No odometry data received after waiting 5 seconds!");
+            ROS_ERROR("No yaw data received after waiting 5 seconds!");
             result_.success = false;
             as_.setAborted(result_);
             return;
         }
 
         // Store initial orientation
-        double start_yaw = current_yaw_;
-        ROS_INFO("Initial orientation: %.2f degrees", start_yaw * RAD_TO_DEG);
+        initial_yaw_ = current_yaw_;
+        ROS_INFO("Initial orientation: %.2f degrees", initial_yaw_);
 
-        // Convert target angle to radians
-        double target_angle_rad = target_angle_deg_ * DEG_TO_RAD;
+        // Reset PID controller
+        pid_controller_.setpoint = 0.0; // We'll feed error directly
+        pid_controller_.sum_error = 0.0;
+        pid_controller_.last_error = 0.0;
 
-        // Start rotating
-        rotateRobot(rotate_speed);
+        // For align mode, log the target yaw
+        if (direction_ == "align")
+        {
+            ROS_INFO("Align mode: current=%.2f, target=%.2f", current_yaw_, target_angle_deg_);
+        }
+        else
+        {
+            // For normal rotation modes, calculate target based on direction and amount
+            double amount = fabs(target_angle_deg_); // Make sure angle is positive
 
-        // Store the previous yaw to calculate incremental changes
-        double prev_yaw = start_yaw;
+            // Calculate direction sign
+            int dir_sign = (direction_ == "clockwise") ? -1 : 1;
 
-        // Accumulated angle turned (in radians)
+            ROS_INFO("Rotate mode: %s, Amount=%.2f degrees",
+                     direction_.c_str(), amount);
+        }
+
+        // Variables for tracking rotation progress
         double accumulated_angle = 0.0;
+        double prev_yaw = initial_yaw_;
+
+        // Target for rotation modes
+        double target_yaw = 0.0; // Will be calculated for each mode
 
         // Main execution loop
         while (ros::ok())
@@ -230,69 +291,119 @@ public:
                 break;
             }
 
-            // Calculate delta yaw (change in orientation since last iteration)
+            // Calculate delta yaw from previous reading
             double delta_yaw = normalizeAngle(current_yaw_ - prev_yaw);
 
-            // Debug angle information
-            ROS_INFO("Current yaw: %.2f, Prev yaw: %.2f, Delta: %.2f",
-                     current_yaw_ * RAD_TO_DEG, prev_yaw * RAD_TO_DEG, delta_yaw * RAD_TO_DEG);
-
-            // Adjust delta based on direction to ensure proper accumulation
+            // Update accumulated angle based on direction
             if (direction_ == "clockwise")
             {
-                // For clockwise, we want negative changes to add to our total
-                // If delta is positive (counterclockwise), it might be due to wraparound
-                if (delta_yaw > 0 && delta_yaw > M_PI_2)
-                {                            // Large positive jump (>90 deg)
-                    delta_yaw -= 2.0 * M_PI; // Convert to equivalent negative angle
+                // For clockwise, negative changes (decreasing yaw) contribute to accumulated angle
+                if (delta_yaw > 0 && delta_yaw > 90.0)
+                {
+                    // Large positive jump means we crossed the -180/180 boundary
+                    delta_yaw -= 360.0;
                 }
-                // For clockwise, accumulate negative rotation (convert to positive)
+
                 if (delta_yaw < 0)
                 {
                     accumulated_angle += -delta_yaw;
                 }
             }
-            else
-            { // counterclockwise
-                // For counterclockwise, we want positive changes to add to our total
-                // If delta is negative (clockwise), it might be due to wraparound
-                if (delta_yaw < 0 && delta_yaw < -M_PI_2)
-                {                            // Large negative jump (<-90 deg)
-                    delta_yaw += 2.0 * M_PI; // Convert to equivalent positive angle
+            else if (direction_ == "counterclockwise")
+            {
+                // For counterclockwise, positive changes (increasing yaw) contribute to accumulated angle
+                if (delta_yaw < 0 && delta_yaw < -90.0)
+                {
+                    // Large negative jump means we crossed the -180/180 boundary
+                    delta_yaw += 360.0;
                 }
-                // For counterclockwise, accumulate positive rotation
+
                 if (delta_yaw > 0)
                 {
                     accumulated_angle += delta_yaw;
                 }
             }
 
-            // Store current orientation for next iteration
+            // Store current yaw for next iteration
             prev_yaw = current_yaw_;
 
-            // Convert to degrees for feedback
-            double degrees_turned = accumulated_angle * RAD_TO_DEG;
+            // Handle different rotation modes with PID
+            double error = 0.0;
 
-            // Update feedback
-            feedback_.current_angle = degrees_turned;
-            as_.publishFeedback(feedback_);
-
-            // Check if we've rotated enough
-            if (degrees_turned >= (target_angle_deg_ - angle_tolerance_deg))
+            if (direction_ == "align")
             {
-                ROS_INFO("Rotation goal reached: %.2f degrees rotated (target: %.2f)",
-                         degrees_turned, target_angle_deg_);
-                success = true;
-                break;
+                // For align mode, error is difference between current and target absolute yaw
+                error = calculateAngularError(current_yaw_, target_angle_deg_);
+
+                // Debug info
+                ROS_INFO_THROTTLE(0.5, "Align mode: current=%.2f, target=%.2f, error=%.2f",
+                                  current_yaw_, target_angle_deg_, error);
+
+                // Success condition for align mode
+                if (fabs(error) < angle_tolerance_deg)
+                {
+                    ROS_INFO("Alignment complete: current=%.2f, target=%.2f, error=%.2f",
+                             current_yaw_, target_angle_deg_, error);
+                    success = true;
+                    break;
+                }
+            }
+            else
+            {
+                // For clockwise/counterclockwise modes
+                double target_amount = fabs(target_angle_deg_);
+                double remaining = target_amount - accumulated_angle;
+
+                // Error is the remaining angle to rotate (with direction)
+                error = (direction_ == "clockwise") ? -remaining : remaining;
+
+                // Debug info
+                ROS_INFO_THROTTLE(0.5, "Rotation mode: %s, accumulated=%.2f, target=%.2f, remaining=%.2f",
+                                  direction_.c_str(), accumulated_angle, target_amount, remaining);
+
+                // Success condition for normal rotation modes
+                if (accumulated_angle >= (target_amount - angle_tolerance_deg))
+                {
+                    ROS_INFO("Rotation complete: accumulated=%.2f, target=%.2f",
+                             accumulated_angle, target_amount);
+                    success = true;
+                    break;
+                }
             }
 
-            // Debug total rotation
-            ROS_INFO("Total rotation: %.2f degrees / %.2f degrees",
-                     degrees_turned, target_angle_deg_);
+            // Use PID controller to calculate angular velocity
+            pid_input(&pid_controller_, error);
+            pid_calculate(&pid_controller_);
+            double angular_vel = pid_output(&pid_controller_);
 
-            // Keep rotating the robot
-            rotateRobot(rotate_speed);
+            // Apply limits to angular velocity
+            if (fabs(angular_vel) > angular_speed_)
+            {
+                angular_vel = angular_vel > 0 ? angular_speed_ : -angular_speed_;
+            }
 
+            // Apply minimum angular velocity for small errors to overcome friction
+            // Only if we're not very close to the target
+            if (fabs(error) > angle_tolerance_deg * 2 && fabs(angular_vel) < 0.1)
+            {
+                angular_vel = error > 0 ? 0.1 : -0.1;
+            }
+
+            // Send command to robot
+            rotateRobot(angular_vel);
+
+            // Update feedback
+            if (direction_ == "align")
+            {
+                feedback_.current_angle = error; // For align mode, feedback is the current error
+            }
+            else
+            {
+                feedback_.current_angle = accumulated_angle; // For rotation modes, feedback is accumulated angle
+            }
+            as_.publishFeedback(feedback_);
+
+            ros::spinOnce();
             r.sleep();
         }
 
@@ -303,7 +414,7 @@ public:
         {
             result_.success = true;
             result_.final_angle = feedback_.current_angle;
-            ROS_INFO("%s: Succeeded, rotated %.2f degrees", action_name_.c_str(), result_.final_angle);
+            ROS_INFO("%s: Succeeded, final angle: %.2f degrees", action_name_.c_str(), result_.final_angle);
             as_.setSucceeded(result_);
         }
     }

@@ -1,0 +1,7 @@
+# Rotation parameters
+angular_speed: 0.8 # Angular speed (rad/s)
+
+# PID controller parameters
+pid_kp: 0.2 # Proportional gain
+pid_ki: 0.0 # Integral gain
+pid_kd: 0.0 # Derivative gain
