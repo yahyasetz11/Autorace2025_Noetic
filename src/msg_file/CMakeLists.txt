@@ -14,6 +14,7 @@ add_message_files(
   DIRECTORY msg 
   FILES
   Detection.msg
+  EulerAngles.msg
 )
 
 add_service_files(
