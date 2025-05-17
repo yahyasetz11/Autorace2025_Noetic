@@ -1,7 +1,6 @@
 #include <ros/ros.h>
 #include <sensor_msgs/Imu.h>
 #include <std_msgs/Float64.h>
-#include <geometry_msgs/QuaternionStamped.h>
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/LinearMath/Matrix3x3.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
@@ -11,6 +10,7 @@
 #include <iomanip>
 #include <string>
 #include <utility>
+#include <msg_file/EulerAngles.h>
 
 class YawTracker
 {
@@ -25,8 +25,7 @@ public:
         private_nh.param<std::string>("imu_topic", imu_topic, "/imu");
 
         // Publishers
-        yaw_pub_ = nh.advertise<std_msgs::Float64>("current_yaw", 10);
-        yaw_stamped_pub_ = nh.advertise<geometry_msgs::QuaternionStamped>("yaw_stamped", 10);
+        euler_pub_ = nh.advertise<msg_file::EulerAngles>("euler_angles", 10);
 
         // Subscriber
         imu_sub_ = nh.subscribe(imu_topic, 10, &YawTracker::imuCallback, this);
@@ -60,17 +59,24 @@ private:
         tf2::Matrix3x3(q).getRPY(roll, pitch, yaw);
 
         // Convert to degrees
+        double roll_degrees = roll * 180.0 / M_PI;
+        double pitch_degrees = pitch * 180.0 / M_PI;
         double yaw_degrees = yaw * 180.0 / M_PI;
 
         // Set initial yaw if not already set
         if (!initial_yaw_set_)
         {
             initial_yaw_ = yaw_degrees;
+            initial_roll_ = roll_degrees;
+            initial_pitch_ = pitch_degrees;
             initial_yaw_set_ = true;
-            ROS_INFO_STREAM("Initial yaw set to: " << initial_yaw_ << " degrees");
+            ROS_INFO_STREAM("Initial orientation set to: roll=" << initial_roll_
+                                                                << ", pitch=" << initial_pitch_ << ", yaw=" << initial_yaw_ << " degrees");
         }
 
-        // Calculate relative yaw (current - initial)
+        // Calculate relative angles
+        double rel_roll = roll_degrees - initial_roll_;
+        double rel_pitch = pitch_degrees - initial_pitch_;
         double rel_yaw = yaw_degrees - initial_yaw_;
 
         // Normalize to [-180, 180] range
@@ -83,6 +89,25 @@ private:
             rel_yaw += 360.0;
         }
 
+        // Same for roll and pitch
+        if (rel_roll > 180.0)
+        {
+            rel_roll -= 360.0;
+        }
+        else if (rel_roll < -180.0)
+        {
+            rel_roll += 360.0;
+        }
+
+        if (rel_pitch > 180.0)
+        {
+            rel_pitch -= 360.0;
+        }
+        else if (rel_pitch < -180.0)
+        {
+            rel_pitch += 360.0;
+        }
+
         current_yaw_ = rel_yaw;
 
         // Record yaw with timestamp
@@ -90,31 +115,29 @@ private:
         double elapsed_time = (current_time - start_time_).toSec();
         yaw_history_.push_back(std::make_pair(elapsed_time, rel_yaw));
 
-        // Publish current yaw
-        std_msgs::Float64 yaw_msg;
-        yaw_msg.data = rel_yaw;
-        yaw_pub_.publish(yaw_msg);
+        // Publish all Euler angles with our custom message
+        msg_file::EulerAngles euler_msg;
+        euler_msg.roll = rel_roll;
+        euler_msg.pitch = rel_pitch;
+        euler_msg.yaw = rel_yaw;
 
-        // Also publish as a stamped message
-        geometry_msgs::QuaternionStamped stamped_msg;
-        stamped_msg.header.stamp = current_time;
-        stamped_msg.header.frame_id = "base_link";
+        // Also include angular velocity if available in the IMU message
+        if (!imu_msg->angular_velocity.z == 0)
+        {
+            euler_msg.angular_velocity_z = imu_msg->angular_velocity.z * 180.0 / M_PI; // Convert to deg/sec
+        }
 
-        // Convert back to quaternion (only yaw rotation)
-        tf2::Quaternion q_yaw;
-        q_yaw.setRPY(0, 0, rel_yaw * M_PI / 180.0);
-
-        // Convert to geometry_msgs Quaternion
-        stamped_msg.quaternion = tf2::toMsg(q_yaw);
-        yaw_stamped_pub_.publish(stamped_msg);
+        euler_pub_.publish(euler_msg);
 
         // Log every 5 seconds (to avoid flooding the console)
         int elapsed_time_int = static_cast<int>(elapsed_time);
         if (elapsed_time_int % 5 == 0 && std::abs(elapsed_time - elapsed_time_int) < 0.1)
         {
-            ROS_INFO_STREAM("Current yaw: " << std::fixed << std::setprecision(2) << rel_yaw
-                                            << " degrees (elapsed time: " << std::fixed << std::setprecision(2)
-                                            << elapsed_time << "s)");
+            ROS_INFO_STREAM("Current orientation: roll=" << std::fixed << std::setprecision(2) << rel_roll
+                                                         << ", pitch=" << std::fixed << std::setprecision(2) << rel_pitch
+                                                         << ", yaw=" << std::fixed << std::setprecision(2) << rel_yaw
+                                                         << " degrees (elapsed time: " << std::fixed << std::setprecision(2)
+                                                         << elapsed_time << "s)");
         }
     }
 
@@ -146,11 +169,12 @@ private:
 
     // ROS handles
     ros::Subscriber imu_sub_;
-    ros::Publisher yaw_pub_;
-    ros::Publisher yaw_stamped_pub_;
+    ros::Publisher euler_pub_; // Our new custom message
 
     // State variables
     bool initial_yaw_set_;
+    double initial_roll_;
+    double initial_pitch_;
     double initial_yaw_;
     double current_yaw_;
     ros::Time start_time_;
