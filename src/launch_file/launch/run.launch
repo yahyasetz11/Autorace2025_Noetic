@@ -1,0 +1,5 @@
+<launch>
+  <include file="$(find launch_file)/launch/camera_calibration.launch"/>
+  <include file="$(find launch_file)/launch/action_bt.launch"/>
+  <node pkg="behaviortree" type="bt_main" name="bt_main"/>
+</launch>

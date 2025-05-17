@@ -5,7 +5,7 @@
                 <TrafficLight timeout="60.0"/>
             </Sequence> -->
             <Sequence name="Mission 1: Intersection">
-                <!-- <LaneDetect mode="center" sign="intersection"/> -->
+                <LaneDetect mode="center" sign="intersection"/>
                 <!-- <LaneDetect mode="center" sign="" duration="1.0"/>  -->
                 <LaneDetect mode="intersection" duration="300.0" sign=""/>   
             </Sequence>

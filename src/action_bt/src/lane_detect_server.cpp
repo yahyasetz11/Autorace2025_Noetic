@@ -527,7 +527,7 @@ public:
 
         // Create command to launch the sign detection node
         std::string cmd = "roslaunch turtlebot3_autorace_detect detect_sign.launch mission:=" +
-                          mission + " & echo $! > /tmp/sign_detect_pid";
+                          mission + " & echo 'Using package path:' && echo $ROS_PACKAGE_PATH > /tmp/pkg_path.txt & echo $! > /tmp/sign_detect_pid";
 
         // Execute command
         int ret = system(cmd.c_str());
