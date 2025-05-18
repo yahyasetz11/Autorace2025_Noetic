@@ -785,6 +785,12 @@ public:
         std::string effective_mode = current_mode_;
         std::string lane_follow_mode = "center"; // Default lane following mode
 
+        // CRITICAL: Define a default lane width to use when x_previous_values is zero
+        const int DEFAULT_LANE_WIDTH = 320; // Match committee's approach
+
+        // IMPORTANT: Create copy of previous values to avoid losing them
+        std::vector<double> x_previous_backup = x_previous_values_;
+
         // For intersection mode, determine the driving behavior
         if (current_mode_ == "intersection")
         {
@@ -882,6 +888,13 @@ public:
                 region_has_right[r] = true;
             }
 
+            if (region_has_left[r] && region_has_right[r])
+            {
+                // Store the lane half-width for this specific region
+                x_previous_values_[r] = (right_lane_x - left_lane_x) / 2;
+            }
+
+            // Calculate region center based on detected lanes and current mode
             // Calculate region center based on detected lanes and current mode
             if (effective_mode == "center")
             {
@@ -889,19 +902,18 @@ public:
                 {
                     // Both lanes detected, center is midpoint
                     region_centers[r] = (left_lane_x + right_lane_x) / 2;
-
-                    // Store the lane half-width for this specific region
-                    x_previous_values_[r] = (right_lane_x - left_lane_x) / 2;
                 }
                 else if (region_has_left[r])
                 {
-                    // Only left lane, estimate center using region-specific width
-                    region_centers[r] = left_lane_x + x_previous_values_[r];
+                    // Only left lane, use either stored width or default
+                    double offset = (x_previous_values_[r] > 10) ? x_previous_values_[r] : DEFAULT_LANE_WIDTH;
+                    region_centers[r] = left_lane_x + offset;
                 }
                 else if (region_has_right[r])
                 {
-                    // Only right lane, estimate center using region-specific width
-                    region_centers[r] = right_lane_x - x_previous_values_[r];
+                    // Only right lane, use either stored width or default
+                    double offset = (x_previous_values_[r] > 10) ? x_previous_values_[r] : DEFAULT_LANE_WIDTH;
+                    region_centers[r] = right_lane_x - offset;
                 }
             }
             else if (effective_mode == "left" ||
@@ -910,13 +922,16 @@ public:
                 // Left mode follows left lane with offset
                 if (region_has_left[r])
                 {
-                    region_centers[r] = left_lane_x + x_previous_values_[r];
+                    // CRITICAL FIX: Use either the stored value (if valid) or DEFAULT
+                    double offset = (x_previous_values_[r] > 10) ? x_previous_values_[r] : DEFAULT_LANE_WIDTH;
+                    region_centers[r] = left_lane_x + offset;
                 }
-                else if (region_has_right[r] && x_previous_values_[r] > 0)
+                else if (region_has_right[r])
                 {
                     // If right lane detected and we have previous offset,
                     // estimate where left lane should be
-                    region_centers[r] = right_lane_x - 2 * x_previous_values_[r];
+                    double offset = (x_previous_values_[r] > 10) ? x_previous_values_[r] * 2 : DEFAULT_LANE_WIDTH * 2;
+                    region_centers[r] = right_lane_x - offset;
                 }
             }
             else if (effective_mode == "right" ||
@@ -925,17 +940,30 @@ public:
                 // Right mode follows right lane with offset
                 if (region_has_right[r])
                 {
-                    region_centers[r] = right_lane_x - x_previous_values_[r];
+                    // CRITICAL FIX: Use either the stored value (if valid) or DEFAULT
+                    double offset = (x_previous_values_[r] > 10) ? x_previous_values_[r] : DEFAULT_LANE_WIDTH;
+                    region_centers[r] = right_lane_x - offset;
                 }
-                else if (region_has_left[r] && x_previous_values_[r] > 0)
+                else if (region_has_left[r])
                 {
                     // If left lane detected and we have previous offset,
                     // estimate where right lane should be
-                    region_centers[r] = left_lane_x + 2 * x_previous_values_[r];
+                    double offset = (x_previous_values_[r] > 10) ? x_previous_values_[r] * 2 : DEFAULT_LANE_WIDTH * 2;
+                    region_centers[r] = left_lane_x + offset;
                 }
             }
 
-            ROS_INFO("%d = %d", r, x_previous_values_[r]);
+            ROS_INFO("%d = %d", r, (int)x_previous_values_[r]);
+
+            for (int r = 0; r < numRegions; r++)
+            {
+                // If a value was reset to zero but we had a valid value before,
+                // restore it from the backup
+                if (x_previous_values_[r] < 10 && x_previous_backup[r] > 10)
+                {
+                    x_previous_values_[r] = x_previous_backup[r];
+                }
+            }
 
             // Debug visualization
             if (region_centers[r] != -1)

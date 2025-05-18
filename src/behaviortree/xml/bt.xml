@@ -26,9 +26,9 @@
             <Sequence name="Mission 2: Construction">
                 <!-- <LaneDetect mode="center" sign="construction" duration="15.0" speed="0.1"/>  -->
                 <LaneDetect mode="center" sign="" duration="3.0"/> 
-                <LaneDetect mode="left" sign="" duration="3.0"/> 
-                <LaneDetect mode="left" sign="" duration="3.0"/> 
-                <LaneDetect mode="just-turn-left" duration="60.0" sign="left" speed="0.1"/>  
+                <!-- <LaneDetect mode="left" sign="" duration="30.0"/> 
+                <LaneDetect mode="left" sign="" duration="3.0"/>  -->
+                <LaneDetect mode="just-turn-left" duration="60.0" sign="right" speed="0.1"/>  
                 <Move mode="forward" until="front" distance="0.3"/>
                 <Rotate direction="align" angle="90.0"/> 
                 <Construction mode="ramp"/> 

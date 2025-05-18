@@ -9,13 +9,17 @@ min_linear_speed: 0.05 # Minimum linear speed during sharp turns
 speed_reduction_factor: 0.7 # Factor to reduce speed when turning
 
 # PID controller parameters
-pid_kp: 0.5 # Proportional gain 7 good (little bit higher)
-pid_ki: 0 # Integral gain
-pid_kd: 0.0 # Derivative gain
-
-# pid_kp: 6 # Proportional gain 7 good (little bit higher)
+# pid_kp: 0.5 # Proportional gain 7 good (little bit higher)
 # pid_ki: 0 # Integral gain
-# pid_kd: 0.6 # Derivative gain
+# pid_kd: 0.0 # Derivative gain
+
+# pid_kp: 2 # Proportional gain 7 good (little bit higher)
+# pid_ki: 0 # Integral gain
+# pid_kd: 0.0 # Derivative gain
+
+pid_kp: 6 # Proportional gain 7 good (little bit higher)
+pid_ki: 0 # Integral gain
+pid_kd: 0.6 # Derivative gain
 
 # Intersection enhancement parameters
 use_sign_finding: true # Enable/disable sign-finding sequence
