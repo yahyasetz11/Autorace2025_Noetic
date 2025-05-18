@@ -219,12 +219,8 @@ public:
         // Stop the robot
         stopRobot();
 
-        // Kill SLAM initialization process if still running
-        if (slam_init_process_id_ > 0)
-        {
-            ROS_INFO("Terminating SLAM initialization process (PID: %d)", slam_init_process_id_);
-            kill(slam_init_process_id_, SIGTERM);
-        }
+        // Clean up SLAM processes
+        cleanupSLAMProcesses();
     }
 
     void stopRobot()
@@ -294,13 +290,14 @@ public:
                                (std::abs(dy) <= finish_area_width_ / 2.0);
 
             // Check if goal is reached (within 0.2m)
-            if (distance < 0.2)
-            {
-                current_goal_reached_ = true;
-                ROS_INFO("Goal %d reached! Distance: %.2f m", goal_index + 1, distance);
-                in_finish_area_ = false;
-            }
-            else if (in_area_now)
+            // if (distance < 0.2)
+            // {
+            //     current_goal_reached_ = true;
+            //     ROS_INFO("Goal %d reached! Distance: %.2f m", goal_index + 1, distance);
+            //     in_finish_area_ = false;
+            // }
+            // else
+            if (in_area_now)
             {
                 if (!in_finish_area_)
                 {
@@ -322,6 +319,9 @@ public:
                         ROS_INFO("Goal %d reached by finish area timeout! Distance: %.2f m, Time in area: %.2f s",
                                  goal_index + 1, distance, time_in_area);
                         in_finish_area_ = false; // Reset finish area flag
+
+                        // Add a brief pause to ensure status updates propagate
+                        ros::Duration(0.5).sleep();
                     }
                     else
                     {
@@ -454,6 +454,52 @@ public:
         return true;
     }
 
+    // Add a cleanup method to properly terminate all processes
+    void cleanupSLAMProcesses()
+    {
+        // Kill SLAM initialization process if still running
+        if (slam_init_process_id_ > 0)
+        {
+            ROS_INFO("Terminating SLAM initialization process (PID: %d)", slam_init_process_id_);
+            kill(slam_init_process_id_, SIGTERM);
+
+            // Wait a moment for the process to terminate gracefully
+            ros::Duration(1.0).sleep();
+
+            // Check if still running and force kill if necessary
+            std::string check_cmd = "ps -p " + std::to_string(slam_init_process_id_) + " > /dev/null";
+            if (system(check_cmd.c_str()) == 0)
+            {
+                ROS_WARN("Process didn't terminate gracefully, using SIGKILL");
+                kill(slam_init_process_id_, SIGKILL);
+            }
+
+            slam_init_process_id_ = -1;
+        }
+
+        // For "online" mode, ensure gmapping is stopped
+        if (current_mode_ == "online")
+        {
+            ROS_INFO("Ensuring gmapping is terminated");
+            system("rosnode kill /slam_gmapping 2>/dev/null || true");
+            system("pkill -f gmapping_node 2>/dev/null || true");
+        }
+
+        // For "offline" mode, ensure move_base and amcl are stopped
+        else if (current_mode_ == "offline")
+        {
+            ROS_INFO("Ensuring move_base and amcl are terminated");
+            system("rosnode kill /move_base 2>/dev/null || true");
+            system("rosnode kill /amcl 2>/dev/null || true");
+        }
+
+        // Make sure cmd_vel is zeroed out
+        stopRobot();
+
+        // Brief pause to allow ROS system to update
+        ros::Duration(1.0).sleep();
+    }
+
     // Check if TF frames are available (to verify SLAM is running)
     bool waitForTFFrames(double timeout = 60.0)
     {
@@ -544,6 +590,7 @@ public:
             if (as_.isPreemptRequested() || !ros::ok())
             {
                 ROS_INFO("%s: Preempted", action_name_.c_str());
+                cleanupSLAMProcesses(); // Add cleanup here
                 as_.setPreempted();
                 stopRobot();
                 return;
@@ -626,6 +673,9 @@ public:
                 // Don't fail the mission just because map saving failed
             }
         }
+
+        // Ensure all processes are cleaned up regardless of success or failure path
+        cleanupSLAMProcesses();
 
         // Set result
         result_.success = success;

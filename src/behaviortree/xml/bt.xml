@@ -50,20 +50,21 @@
             </Sequence> -->
 
             <Sequence name="Mission 5: Tunnel">
-                <!-- <Move mode="forward" until="right" distance="1.0"/>
-                <Move mode="forward" until="timer" distance="4"/>
+                <Move mode="forward" until="right" distance="1.0"/>
+                <Move mode="forward" until="timer" distance="3"/>
                 <Align by="right"/>
                 <Rotate direction="counterclockwise" angle="90.0"/>
-                <Move mode="forward" until="back" distance="0.35"/>
-                <Rotate direction="clockwise" angle="90.0"/>  -->
+                <Move mode="forward" until="back" distance="0.25"/>
+                <Rotate direction="clockwise" angle="90.0"/> 
                 <TunnelNav mode="online"/>
-                <!-- <Align by="right"/> -->
-                <!-- <Rotate direction="clockwise" angle="10.0"/> -->
-                <Move mode="forward" until="timer" distance="3.0"/>
+                <Rotate direction="align" angle="90.0"/> 
+                <Align by="right"/>
+                <Rotate direction="clockwise" angle="5.0"/> 
+                <Move mode="forward" until="timer" distance="5.0"/>
             </Sequence>
 
             <Sequence name="Mission 6: Finish">
-                <LaneDetect mode="center" duration="5.0" sign=""/>
+                <LaneDetect mode="center" duration="5.0" sign="" speed="0.12"/>
             </Sequence>
         </Sequence>
     </BehaviorTree>
