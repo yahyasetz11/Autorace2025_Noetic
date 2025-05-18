@@ -935,6 +935,12 @@ public:
                     recorded_left_lane_x_[r] = left_lane_x - right_lane_x;
                     recorded_right_lane_x_[r] = right_lane_x - left_lane_x;
                     region_centers[r] = (left_lane_x + right_lane_x) / 2;
+
+                    // Store the lane width for future calculations
+                    if (r == 0)
+                    { // Only store from bottom region
+                        x_previous_ = (right_lane_x - left_lane_x) / 2;
+                    }
                 }
 
                 else if (region_has_left[r])
@@ -954,55 +960,89 @@ public:
             else if (effective_mode == "left" ||
                      (is_turn_mode_ && lane_follow_mode == "left"))
             {
-                if (region_has_left[r] && region_has_right[r])
+                if (current_mode_ != "intersection")
                 {
-                    region_centers[r] = (left_lane_x + right_lane_x) / 2;
-                }
+                    if (region_has_left[r] && region_has_right[r])
+                    {
+                        region_centers[r] = (left_lane_x + right_lane_x) / 2;
+                    }
 
-                if (region_has_left[r])
-                {
-                    int fake_right = left_lane_x + recorded_right_lane_x_[r];
-                    ROS_INFO("Oppose %d = %d ", r, fake_right);
-                    if (fake_right != -1)
+                    if (region_has_left[r])
                     {
-                        region_centers[r] = (left_lane_x + fake_right) / 2;
-                        cv::circle(debug_img, cv::Point(fake_right, y), 3, cv::Scalar(255, 255, 0), -1); // fake right
+                        int fake_right = left_lane_x + recorded_right_lane_x_[r];
+                        ROS_INFO("Oppose %d = %d ", r, fake_right);
+                        if (fake_right != -1)
+                        {
+                            region_centers[r] = (left_lane_x + fake_right) / 2;
+                            cv::circle(debug_img, cv::Point(fake_right, y), 3, cv::Scalar(255, 255, 0), -1); // fake right
+                        }
+                        else
+                        {
+                            region_centers[r] = left_lane_x; // fallback
+                        }
                     }
-                    else
+                    else if (region_has_right[r] && recorded_right_lane_x_[r] > 0)
                     {
-                        region_centers[r] = left_lane_x; // fallback
+                        // If right lane detected and we have previous offset,
+                        // estimate where left lane should be
+                        region_centers[r] = right_lane_x - 2 * recorded_right_lane_x_[r];
                     }
                 }
-                else if (region_has_right[r] && recorded_right_lane_x_[r] > 0)
+                else
                 {
-                    // If right lane detected and we have previous offset,
-                    // estimate where left lane should be
-                    region_centers[r] = right_lane_x - 2 * recorded_right_lane_x_[r];
+                    // Left mode follows left lane with offset
+                    if (region_has_left[r])
+                    {
+                        region_centers[r] = left_lane_x + x_previous_;
+                    }
+                    else if (region_has_right[r] && x_previous_ > 0)
+                    {
+                        // If right lane detected and we have previous offset,
+                        // estimate where left lane should be
+                        region_centers[r] = right_lane_x - 2 * x_previous_;
+                    }
                 }
             }
             else if (effective_mode == "right" ||
                      (is_turn_mode_ && lane_follow_mode == "right"))
             {
-                // Right mode follows right lane with offset
-                if (region_has_right[r])
+                if (current_mode_ != "intersection")
                 {
-                    int fake_left = right_lane_x + recorded_left_lane_x_[r];
-                    ROS_INFO("Oppose %d = %d ", r, fake_left);
-                    if (fake_left != -1)
+                    // Right mode follows right lane with offset
+                    if (region_has_right[r])
                     {
-                        region_centers[r] = (right_lane_x + fake_left) / 2;
-                        cv::circle(debug_img, cv::Point(fake_left, y), 3, cv::Scalar(255, 0, 255), -1); // fake left
+                        int fake_left = right_lane_x + recorded_left_lane_x_[r];
+                        ROS_INFO("Oppose %d = %d ", r, fake_left);
+                        if (fake_left != -1)
+                        {
+                            region_centers[r] = (right_lane_x + fake_left) / 2;
+                            cv::circle(debug_img, cv::Point(fake_left, y), 3, cv::Scalar(255, 0, 255), -1); // fake left
+                        }
+                        else
+                        {
+                            region_centers[r] = right_lane_x; // fallback
+                        }
                     }
-                    else
+                    else if (region_has_left[r] && recorded_left_lane_x_[r] < 0)
                     {
-                        region_centers[r] = right_lane_x; // fallback
+                        // If left lane detected and we have previous offset,
+                        // estimate where right lane should be
+                        region_centers[r] = left_lane_x - 2 * recorded_left_lane_x_[r];
                     }
                 }
-                else if (region_has_left[r] && recorded_left_lane_x_[r] < 0)
+                else
                 {
-                    // If left lane detected and we have previous offset,
-                    // estimate where right lane should be
-                    region_centers[r] = left_lane_x - 2 * recorded_left_lane_x_[r];
+                    // Left mode follows left lane with offset
+                    if (region_has_left[r])
+                    {
+                        region_centers[r] = left_lane_x + x_previous_;
+                    }
+                    else if (region_has_right[r] && x_previous_ > 0)
+                    {
+                        // If right lane detected and we have previous offset,
+                        // estimate where left lane should be
+                        region_centers[r] = right_lane_x - 2 * x_previous_;
+                    }
                 }
             }
 
@@ -1502,7 +1542,7 @@ public:
                 else if (intersection_initial_turn_done_ && intersection_x_sign_seen_ && intersection_retry_count_ == 0)
                 {
                     // Start retry turn
-                    intersection_flag_ = 0;
+                    // intersection_flag_ = 0;
                     actual_driving_mode_ = intersection_turn_direction_;
                     intersection_retry_count_ = 1;
                     ROS_INFO("Starting retry turn: %s", intersection_turn_direction_.c_str());

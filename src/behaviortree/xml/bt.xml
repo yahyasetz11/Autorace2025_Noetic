@@ -15,17 +15,17 @@
             <!-- <Sequence name="Mission 0: Traffic Light">
                 <TrafficLight timeout="60.0"/>
             </Sequence> -->
-            <Sequence name="Mission 1: Intersection">
-                <!-- <LaneDetect mode="center" sign="intersection"/> -->
+            <!-- <Sequence name="Mission 1: Intersection">
+                <LaneDetect mode="center" sign="intersection"/>
                 <LaneDetect mode="center" sign="" duration="1.0"/> 
-                <!-- <LaneDetect mode="right" sign="" duration="60.0"/> 
-                <LaneDetect mode="right" sign="" duration="60.0"/>  -->
+                <LaneDetect mode="right" sign="" duration="60.0"/> 
+                <LaneDetect mode="right" sign="" duration="60.0"/> 
                 <LaneDetect mode="intersection" duration="300.0" sign=""/>   
-            </Sequence>
+            </Sequence> -->
 
             <Sequence name="Mission 2: Construction">
                 <!-- <LaneDetect mode="center" sign="construction" duration="15.0" speed="0.1"/>  -->
-                <LaneDetect mode="center" sign="" duration="2.0"/> 
+                <LaneDetect mode="center" sign="" duration="5.0"/> 
                 <!-- <LaneDetect mode="right" sign="" duration="30.0"/> 
                 <LaneDetect mode="right" sign="" duration="3.0"/>  -->
                 <LaneDetect mode="just-turn-left" duration="60.0" sign="right" speed="0.1"/>  
