@@ -1,6 +1,6 @@
 cross_walking:
   # Camera topic
-  camera_topic: "/camera/image_projected_compensated"
+  camera_topic: "/camera/image"
 
   # Movement parameters
   forward_speed: 0.08 # Linear speed for forward movement (m/s)
@@ -13,17 +13,17 @@ cross_walking:
   cleared_threshold: 50 # Pixel count threshold to consider crossing cleared
 
   # ROI parameters
-  roi_x: 30 # X position of ROI
-  roi_y: 130 # Y position of ROI
+  roi_x: 4 # X position of ROI
+  roi_y: 90 # Y position of ROI
   roi_width: 280 # Width of ROI
-  roi_height: 60 # Height of ROI
+  roi_height: 75 # Height of ROI
 
   # Color thresholds for red (two ranges because red wraps in HSV)
   hue_red_low1: 0
-  hue_red_high1: 10
-  saturation_red_low: 100
+  hue_red_high1: 15
+  saturation_red_low: 9
   saturation_red_high: 255
-  value_red_low: 100
+  value_red_low: 19
   value_red_high: 255
 
   hue_red_low2: 170

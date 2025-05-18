@@ -25,10 +25,10 @@ public:
         private_nh.param<std::string>("imu_topic", imu_topic, "/imu");
 
         // Publishers
-        euler_pub_ = nh.advertise<msg_file::EulerAngles>("euler_angles", 10);
+        euler_pub_ = nh.advertise<msg_file::EulerAngles>("euler_angles", 100);
 
         // Subscriber
-        imu_sub_ = nh.subscribe(imu_topic, 10, &YawTracker::imuCallback, this);
+        imu_sub_ = nh.subscribe(imu_topic, 100, &YawTracker::imuCallback, this);
 
         // Initialize start time
         start_time_ = ros::Time::now();
@@ -130,15 +130,15 @@ private:
         euler_pub_.publish(euler_msg);
 
         // Log every 5 seconds (to avoid flooding the console)
-        int elapsed_time_int = static_cast<int>(elapsed_time);
-        if (elapsed_time_int % 5 == 0 && std::abs(elapsed_time - elapsed_time_int) < 0.1)
-        {
-            ROS_INFO_STREAM("Current orientation: roll=" << std::fixed << std::setprecision(2) << rel_roll
-                                                         << ", pitch=" << std::fixed << std::setprecision(2) << rel_pitch
-                                                         << ", yaw=" << std::fixed << std::setprecision(2) << rel_yaw
-                                                         << " degrees (elapsed time: " << std::fixed << std::setprecision(2)
-                                                         << elapsed_time << "s)");
-        }
+        // int elapsed_time_int = static_cast<int>(elapsed_time);
+        // if (elapsed_time_int % 1 == 0 && std::abs(elapsed_time - elapsed_time_int) < 0.1)
+        // {
+        ROS_INFO_STREAM("Current orientation: roll=" << std::fixed << std::setprecision(2) << rel_roll
+                                                     << ", pitch=" << std::fixed << std::setprecision(2) << rel_pitch
+                                                     << ", yaw=" << std::fixed << std::setprecision(2) << rel_yaw
+                                                     << " degrees (elapsed time: " << std::fixed << std::setprecision(2)
+                                                     << elapsed_time << "s)");
+        // }
     }
 
     void saveHistory(const std::string &filename)

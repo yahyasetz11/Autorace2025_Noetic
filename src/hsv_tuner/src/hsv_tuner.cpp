@@ -46,6 +46,7 @@ public:
         // Get parameters
         std::string camera_topic;
         nh_.param<std::string>("camera_topic", camera_topic, "/camera/image_projected_compensated");
+        // nh_.param<std::string>("camera_topic", camera_topic, "/camera/image");
         nh_.param<std::string>("output_file", output_file, "hsv_params.yaml");
 
         // Set default HSV values before loading from file

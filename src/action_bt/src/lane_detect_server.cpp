@@ -47,10 +47,10 @@ private:
     pid_t detect_sign_process_id_; // Process ID for launched sign detection
 
     // Lane detection variables
-    std::string current_mode_;        // Current operation mode: "center", "left", "right", "intersection", etc.
-    std::string actual_driving_mode_; // The actual driving mode (used by intersection)
-    double x_previous_;               // Stored distance from lane to center
-    bool both_lanes_detected_;        // Flag for detecting both lanes
+    std::string current_mode_;              // Current operation mode: "center", "left", "right", "intersection", etc.
+    std::string actual_driving_mode_;       // The actual driving mode (used by intersection)
+    std::vector<double> x_previous_values_; // Stored distance from lane to center
+    bool both_lanes_detected_;              // Flag for detecting both lanes
 
     // Yaw tracking for turn modes and intersection
     double initial_yaw_;   // Initial yaw angle when turn started
@@ -121,7 +121,7 @@ public:
                                          last_sign_data_(0),
                                          target_sign_(""),
                                          both_lanes_detected_(false),
-                                         x_previous_(0.0),
+                                         x_previous_values_(5, 30.0),
                                          intersection_flag_(0),
                                          previous_both_lanes_(false),
                                          initial_yaw_(0.0),
@@ -135,7 +135,7 @@ public:
                                          intersection_turn_direction_(""),
                                          intersection_initial_yaw_(0.0),
                                          intersection_yaw_recorded_(false),
-                                         yaw_tolerance_(10.0) // 10 degrees tolerance
+                                         yaw_tolerance_(20.0) // 10 degrees tolerance
     {
         // Get camera topic from parameter server
         nh_.param<std::string>("camera_topic", camera_topic_, "/camera/image_projected_compensated");
@@ -779,6 +779,8 @@ public:
         int width = lane_img.cols;
         int center_x = width / 2;
 
+        // x_previous_values_ = std::vector<double>(5, 30.0);
+
         // Get actual driving mode to use for calculations
         std::string effective_mode = current_mode_;
         std::string lane_follow_mode = "center"; // Default lane following mode
@@ -888,21 +890,18 @@ public:
                     // Both lanes detected, center is midpoint
                     region_centers[r] = (left_lane_x + right_lane_x) / 2;
 
-                    // Store the lane width for future calculations
-                    if (r == 0)
-                    { // Only store from bottom region
-                        x_previous_ = (right_lane_x - left_lane_x) / 2;
-                    }
+                    // Store the lane half-width for this specific region
+                    x_previous_values_[r] = (right_lane_x - left_lane_x) / 2;
                 }
                 else if (region_has_left[r])
                 {
-                    // Only left lane, estimate center
-                    region_centers[r] = left_lane_x + x_previous_;
+                    // Only left lane, estimate center using region-specific width
+                    region_centers[r] = left_lane_x + x_previous_values_[r];
                 }
                 else if (region_has_right[r])
                 {
-                    // Only right lane, estimate center
-                    region_centers[r] = right_lane_x - x_previous_;
+                    // Only right lane, estimate center using region-specific width
+                    region_centers[r] = right_lane_x - x_previous_values_[r];
                 }
             }
             else if (effective_mode == "left" ||
@@ -911,13 +910,13 @@ public:
                 // Left mode follows left lane with offset
                 if (region_has_left[r])
                 {
-                    region_centers[r] = left_lane_x + x_previous_;
+                    region_centers[r] = left_lane_x + x_previous_values_[r];
                 }
-                else if (region_has_right[r] && x_previous_ > 0)
+                else if (region_has_right[r] && x_previous_values_[r] > 0)
                 {
                     // If right lane detected and we have previous offset,
                     // estimate where left lane should be
-                    region_centers[r] = right_lane_x - 2 * x_previous_;
+                    region_centers[r] = right_lane_x - 2 * x_previous_values_[r];
                 }
             }
             else if (effective_mode == "right" ||
@@ -926,15 +925,17 @@ public:
                 // Right mode follows right lane with offset
                 if (region_has_right[r])
                 {
-                    region_centers[r] = right_lane_x - x_previous_;
+                    region_centers[r] = right_lane_x - x_previous_values_[r];
                 }
-                else if (region_has_left[r] && x_previous_ > 0)
+                else if (region_has_left[r] && x_previous_values_[r] > 0)
                 {
                     // If left lane detected and we have previous offset,
                     // estimate where right lane should be
-                    region_centers[r] = left_lane_x + 2 * x_previous_;
+                    region_centers[r] = left_lane_x + 2 * x_previous_values_[r];
                 }
             }
+
+            ROS_INFO("%d = %d", r, x_previous_values_[r]);
 
             // Debug visualization
             if (region_centers[r] != -1)
@@ -1176,11 +1177,11 @@ public:
         }
 
         // Initialize x_previous_ with a reasonable value if it's zero
-        if (x_previous_ <= 0)
-        {
-            x_previous_ = 30; // Default reasonable value, adjust based on your robot and lanes
-            ROS_INFO("Initializing x_previous_ to default value: %.1f", x_previous_);
-        }
+        // if (x_previous_ <= 0)
+        // {
+        //     x_previous_ = 30; // Default reasonable value, adjust based on your robot and lanes
+        //     ROS_INFO("Initializing x_previous_ to default value: %.1f", x_previous_);
+        // }
 
         // Reset detection flags
         sign_detected_ = false;
