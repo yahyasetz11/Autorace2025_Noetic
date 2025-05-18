@@ -3,12 +3,12 @@ tunnel_navigation:
   navigation_timeout: 300.0 # Maximum time to wait for navigation (seconds)
 
   # Multiple goal navigation
-  goal_total: 2 # Total number of goals to navigate to sequentially
+  goal_total: 1 # Total number of goals to navigate to sequentially
 
   # Array of goal poses [x, y, yaw]
   goal_poses:
     # - [-1.0, -0.9, -1.57]
-    - [-1.0, -1.7, 0.0]
+    # - [-1.0, -1.7, 0.0]
     - [-0.2, -1.7, 0.0]
 
   # Map saving parameters
@@ -16,6 +16,9 @@ tunnel_navigation:
 
   # Default goal (used if goal_poses is not defined, for backward compatibility)
   default_goal:
-    x: 2.0
-    y: 0.0
+    x: -0.2
+    y: -1.7
     yaw: 0.0 # In radians
+
+  finish_area_width: 0.4 # Width of the square area around goal in meters
+  finish_area_timeout: 5.0 # Time in seconds robot must stay in finish area to consider goal reached

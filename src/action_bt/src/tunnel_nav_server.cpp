@@ -52,6 +52,10 @@ private:
     // Goal position tracking
     std::vector<geometry_msgs::PoseStamped> goal_pose_list_;
     int current_goal_index_;
+    double finish_area_width_;       // Width of the square area around goal point
+    double finish_area_timeout_;     // Timeout in seconds
+    ros::Time in_finish_area_since_; // Timestamp when robot entered finish area
+    bool in_finish_area_;            // Flag to track if robot is in finish area
 
     // TF listener for position tracking
     tf::TransformListener tf_listener_;
@@ -65,7 +69,11 @@ public:
                                         slam_init_process_id_(-1),
                                         navigation_timeout(300.0),
                                         goal_total(1),
-                                        map_base_path_("~/Documents/Autorace2025_Noetic/src/maps/maps")
+                                        map_base_path_("~/Documents/Autorace2025_Noetic/src/maps/maps"),
+                                        finish_area_width_(0.4),   // Default 0.4m square area
+                                        finish_area_timeout_(5.0), // Default 5 seconds
+                                        in_finish_area_(false)     // Initially not in finish area
+
     {
         // Load YAML configuration file
         std::string config_path = ros::package::getPath("action_bt") + "/../config/tunnel_param.yaml";
@@ -122,6 +130,12 @@ public:
                 // Map base path
                 if (tunnel_config["map_base_path"])
                     map_base_path_ = tunnel_config["map_base_path"].as<std::string>();
+
+                if (tunnel_config["finish_area_width"])
+                    finish_area_width_ = tunnel_config["finish_area_width"].as<double>();
+
+                if (tunnel_config["finish_area_timeout"])
+                    finish_area_timeout_ = tunnel_config["finish_area_timeout"].as<double>();
             }
 
             ROS_INFO("YAML configuration loaded successfully");
@@ -275,11 +289,57 @@ public:
             double dy = goal_pose_list_[goal_index].pose.position.y - transform.getOrigin().y();
             double distance = std::sqrt(dx * dx + dy * dy);
 
+            // Check if robot is within finish area (square)
+            bool in_area_now = (std::abs(dx) <= finish_area_width_ / 2.0) &&
+                               (std::abs(dy) <= finish_area_width_ / 2.0);
+
             // Check if goal is reached (within 0.2m)
             if (distance < 0.2)
             {
                 current_goal_reached_ = true;
                 ROS_INFO("Goal %d reached! Distance: %.2f m", goal_index + 1, distance);
+                in_finish_area_ = false;
+            }
+            else if (in_area_now)
+            {
+                if (!in_finish_area_)
+                {
+                    // Just entered the finish area, start the timer
+                    in_finish_area_ = true;
+                    in_finish_area_since_ = ros::Time::now();
+                    ROS_INFO("Robot entered finish area for goal %d. Distance: %.2f m",
+                             goal_index + 1, distance);
+                }
+                else
+                {
+                    // Already in finish area, check timeout
+                    double time_in_area = (ros::Time::now() - in_finish_area_since_).toSec();
+
+                    if (time_in_area >= finish_area_timeout_)
+                    {
+                        // Timeout reached, consider goal achieved
+                        current_goal_reached_ = true;
+                        ROS_INFO("Goal %d reached by finish area timeout! Distance: %.2f m, Time in area: %.2f s",
+                                 goal_index + 1, distance, time_in_area);
+                        in_finish_area_ = false; // Reset finish area flag
+                    }
+                    else
+                    {
+                        // Still in area but timeout not reached yet
+                        ROS_INFO_THROTTLE(1.0, "Robot in finish area for %.2f s. Need %.2f s more to consider goal reached.",
+                                          time_in_area, finish_area_timeout_ - time_in_area);
+                    }
+                }
+            }
+            else
+            {
+                // Not in finish area
+                if (in_finish_area_)
+                {
+                    // Just left the finish area
+                    in_finish_area_ = false;
+                    ROS_INFO("Robot left finish area for goal %d before timeout.", goal_index + 1);
+                }
             }
 
             return distance;
@@ -440,6 +500,7 @@ public:
         navigation_started_ = false;
         current_goal_reached_ = false;
         current_goal_index_ = 0;
+        in_finish_area_ = false;
 
         // Get mode from goal
         current_mode_ = goal->mode;

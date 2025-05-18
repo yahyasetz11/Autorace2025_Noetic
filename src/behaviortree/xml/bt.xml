@@ -23,17 +23,17 @@
                 <LaneDetect mode="intersection" duration="300.0" sign=""/>   
             </Sequence> -->
 
-            <Sequence name="Mission 2: Construction">
-                <!-- <LaneDetect mode="center" sign="construction" duration="15.0" speed="0.1"/>  -->
+            <!-- <Sequence name="Mission 2: Construction">
+                <LaneDetect mode="center" sign="construction" duration="15.0" speed="0.1"/> 
                 <LaneDetect mode="center" sign="" duration="5.0"/> 
-                <!-- <LaneDetect mode="right" sign="" duration="30.0"/> 
-                <LaneDetect mode="right" sign="" duration="3.0"/>  -->
+                <LaneDetect mode="right" sign="" duration="30.0"/> 
+                <LaneDetect mode="right" sign="" duration="3.0"/> 
                 <LaneDetect mode="just-turn-left" duration="60.0" sign="right" speed="0.1"/>  
-                <!-- <Move mode="forward" until="front" distance="0.3"/>
-                <Rotate direction="align" angle="90.0"/>  -->
+                <Move mode="forward" until="front" distance="0.3"/>
+                <Rotate direction="align" angle="90.0"/> 
                 <Construction mode="ramp"/> 
                 <LaneDetect mode="just-turn-left" duration="60.0" sign="right"/>
-            </Sequence>
+            </Sequence> -->
 
             <!-- <Sequence name="Mission 3: Parking">
                 <LaneDetect mode="center" duration="3" sign="parking" speed="0.1"/>
@@ -49,22 +49,22 @@
                 <LaneDetect mode="center" duration="300.0" sign="tunnel"/>
             </Sequence> -->
 
-            <!-- <Sequence name="Mission 5: Tunnel">
-                <Move mode="forward" until="right" distance="1.0"/>
+            <Sequence name="Mission 5: Tunnel">
+                <!-- <Move mode="forward" until="right" distance="1.0"/>
                 <Move mode="forward" until="timer" distance="4"/>
                 <Align by="right"/>
                 <Rotate direction="counterclockwise" angle="90.0"/>
                 <Move mode="forward" until="back" distance="0.35"/>
-                <Rotate direction="clockwise" angle="90.0"/> 
+                <Rotate direction="clockwise" angle="90.0"/>  -->
                 <TunnelNav mode="online"/>
-                <Align by="right"/>
-                <Rotate direction="counterclockwise" angle="10.0"/>
-                <Move mode="forward" until="timer" distance="2.0"/>
-            </Sequence> -->
+                <!-- <Align by="right"/> -->
+                <!-- <Rotate direction="clockwise" angle="10.0"/> -->
+                <Move mode="forward" until="timer" distance="3.0"/>
+            </Sequence>
 
-            <!-- <Sequence name="Mission 6: Finish">
-                <LaneDetect mode="center" duration="60.0" sign="stop"/>
-            </Sequence> -->
+            <Sequence name="Mission 6: Finish">
+                <LaneDetect mode="center" duration="5.0" sign=""/>
+            </Sequence>
         </Sequence>
     </BehaviorTree>
 </root>
