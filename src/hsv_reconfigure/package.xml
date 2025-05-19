@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>hsv_reconfigure</name>
+  <version>1.0.0</version>
+  <description>HSV parameter tuning with dynamic_reconfigure for multiple detectors</description>
+
+  <maintainer email="user@todo.todo">user</maintainer>
+  <license>TODO</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+  
+  <build_depend>roscpp</build_depend>
+  <build_depend>dynamic_reconfigure</build_depend>
+  <build_depend>cv_bridge</build_depend>
+  <build_depend>image_transport</build_depend>
+  <build_depend>sensor_msgs</build_depend>
+  <build_depend>std_msgs</build_depend>
+  <build_depend>yaml_cpp</build_depend>
+
+  <exec_depend>roscpp</exec_depend>
+  <exec_depend>dynamic_reconfigure</exec_depend>
+  <exec_depend>cv_bridge</exec_depend>
+  <exec_depend>image_transport</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>yaml_cpp</exec_depend>
+</package>

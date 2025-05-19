@@ -1,0 +1,25 @@
+<launch>
+  <!-- Mode selection -->
+  <arg name="mode" default="lane" doc="Tuning mode: 'lane', 'traffic_light', or 'cross_walk'" />
+  
+  <!-- Camera topics -->
+  <arg name="lane_camera_topic" default="/camera/image_projected_compensated" />
+  <arg name="tl_cw_camera_topic" default="/camera/image" />
+  
+  <!-- Output directory for saved configs -->
+  <arg name="output_dir" default="$(find hsv_reconfigure)/config" />
+  
+  <!-- Launch the HSV reconfigure tuner node -->
+  <node name="hsv_reconfigure_tuner" pkg="hsv_reconfigure" type="hsv_reconfigure_tuner" output="screen">
+    <param name="mode" value="$(arg mode)" />
+    <param name="lane_camera_topic" value="$(arg lane_camera_topic)" />
+    <param name="tl_cw_camera_topic" value="$(arg tl_cw_camera_topic)" />
+    <param name="output_dir" value="$(arg output_dir)" />
+  </node>
+  
+  <!-- Launch rqt_reconfigure for parameter adjustment -->
+  <node name="rqt_reconfigure" pkg="rqt_reconfigure" type="rqt_reconfigure" output="screen" />
+  
+  <!-- Launch rqt_image_view for visualization -->
+  <node name="rqt_image_view" pkg="rqt_image_view" type="rqt_image_view" output="screen" />
+</launch>
