@@ -4,8 +4,8 @@ construction:
   angular_speed: 1.0 # Angular speed for turning (rad/s)
 
   # Distance thresholds
-  wall_distance_threshold: 0.3 # Distance threshold to consider close to wall (m)
-  wall_side_distance_threshold: 3 # Distance threshold to consider close to wall (m)
+  wall_distance_threshold: 0.47 # Distance threshold to consider close to wall (m)
+  wall_side_distance_threshold: 1 # Distance threshold to consider close to wall (m)
 
   # Angle parameters
   front_scan_angle: 5.0 # Angle range to consider as "front" (degrees)
@@ -17,8 +17,9 @@ construction:
   desired_radius: 0.2 # Factor to adjust turn radius (m)
 
   # Ramp mode parameters
-  ramp_rotation_angle: 60.0 # Angle to rotate in ramp mode (degrees)
-  ramp_front_threshold: 0.375 # Distance threshold for front detection (m)
+  # ramp_rotation_angle: 60.0 # Angle to rotate in ramp mode (degrees)
+  ramp_rotation_angle: 30.0 # Angle to rotate in ramp mode (degrees)
+  ramp_front_threshold: 0.45 # Distance threshold for front detection (m)
   ramp_side_threshold: 0.45 # Distance threshold for side detection (m)
   ramp_final_threshold: 0.30 # Distance threshold for final detection (m)
   pivot_angular_speed: 0.5 # Angular speed for pivot turns (rad/s)

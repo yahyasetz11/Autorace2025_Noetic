@@ -501,7 +501,7 @@ public:
         std::string mission;
 
         // Determine the mission type based on target sign or mode
-        if (current_mode_ == "intersection")
+        if (current_mode_ == "intersection" || target_sign_ == "intersection")
         {
             mission = "intersection";
         }
@@ -985,7 +985,7 @@ public:
                     {
                         // If right lane detected and we have previous offset,
                         // estimate where left lane should be
-                        region_centers[r] = right_lane_x - 2 * recorded_right_lane_x_[r];
+                        region_centers[r] = right_lane_x - recorded_right_lane_x_[r];
                     }
                 }
                 else
@@ -999,7 +999,7 @@ public:
                     {
                         // If right lane detected and we have previous offset,
                         // estimate where left lane should be
-                        region_centers[r] = right_lane_x - 2 * x_previous_;
+                        region_centers[r] = right_lane_x - x_previous_;
                     }
                 }
             }
@@ -1027,7 +1027,7 @@ public:
                     {
                         // If left lane detected and we have previous offset,
                         // estimate where right lane should be
-                        region_centers[r] = left_lane_x - 2 * recorded_left_lane_x_[r];
+                        region_centers[r] = left_lane_x - recorded_left_lane_x_[r];
                     }
                 }
                 else
@@ -1041,7 +1041,7 @@ public:
                     {
                         // If right lane detected and we have previous offset,
                         // estimate where left lane should be
-                        region_centers[r] = right_lane_x - 2 * x_previous_;
+                        region_centers[r] = right_lane_x - x_previous_;
                     }
                 }
             }
@@ -1171,26 +1171,26 @@ public:
 
         // For turning modes, we might want to adjust the linear/angular speed
         // to ensure a tighter turn radius
-        if (is_turn_mode_)
-        {
-            // Increase angular speed for turning modes to make turns faster
-            if (current_mode_ == "just-turn-left")
-            {
-                // Make sure we're turning left (negative angular_z is right turn in ROS)
-                if (angular_z > 0)
-                {
-                    angular_z = std::max(angular_z, max_angular_speed * 0.5); // At least 50% of max turn
-                }
-            }
-            else if (current_mode_ == "just-turn-right")
-            {
-                // Make sure we're turning right (positive angular_z is left turn in ROS)
-                if (angular_z < 0)
-                {
-                    angular_z = std::min(angular_z, -max_angular_speed * 0.5); // At least 50% of max turn
-                }
-            }
-        }
+        // if (is_turn_mode_)
+        // {
+        //     // Increase angular speed for turning modes to make turns faster
+        //     if (current_mode_ == "just-turn-left")
+        //     {
+        //         // Make sure we're turning left (negative angular_z is right turn in ROS)
+        //         if (angular_z > 0)
+        //         {
+        //             angular_z = std::max(angular_z, max_angular_speed * 0.5); // At least 50% of max turn
+        //         }
+        //     }
+        //     else if (current_mode_ == "just-turn-right")
+        //     {
+        //         // Make sure we're turning right (positive angular_z is left turn in ROS)
+        //         if (angular_z < 0)
+        //         {
+        //             angular_z = std::min(angular_z, -max_angular_speed * 0.5); // At least 50% of max turn
+        //         }
+        //     }
+        // }
 
         // Adaptive calculation for linear speed based on steering
         // Reduce speed when turning sharply
@@ -1416,7 +1416,7 @@ public:
                         double yaw_diff = calculateYawDifference(current_yaw_, intersection_initial_yaw_);
 
                         // Check if we've turned approximately 180 degrees (with tolerance)
-                        if (fabs(yaw_diff - (-90.0)) <= yaw_tolerance_)
+                        if (fabs(yaw_diff - (0.0)) <= yaw_tolerance_)
                         {
                             ROS_INFO("Intersection success: both lanes detected and yaw diff=%.2f degrees", yaw_diff);
                             intersection_condition = true;
@@ -1463,11 +1463,20 @@ public:
                 // Check for the initial sequence (before detecting any sign)
                 if (!intersection_initial_turn_done_ && !sign_detected_)
                 {
+                    double yaw_diff = current_yaw_ - initial_yaw_;
+
+                    // Normalize to [-π, π]
+                    while (yaw_diff > M_PI)
+                        yaw_diff -= 2 * M_PI;
+                    while (yaw_diff < -M_PI)
+                        yaw_diff += 2 * M_PI;
+
                     // If sign-finding is enabled and we've waited a bit without detecting a sign
                     if (use_sign_finding_ &&
                         !in_sign_finding_mode_ &&
-                        both_lanes_detected_ && // Only start when both lanes detected
-                        (ros::Time::now() - start_time_).toSec() > 5.0)
+                        both_lanes_detected_ &&                     // Only start when both lanes detected
+                        fabs(yaw_diff - (180.0)) <= yaw_tolerance_) // negative : counterclockwise
+                    // (ros::Time::now() - start_time_).toSec() > 5.0)
                     {
                         // Start sign-finding mode
                         in_sign_finding_mode_ = true;

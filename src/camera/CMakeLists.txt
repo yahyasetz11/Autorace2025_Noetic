@@ -33,6 +33,10 @@ add_executable(camera_laptop src/camera_laptop.cpp)
 target_link_libraries(camera_laptop ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
 add_dependencies(camera_laptop ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
+add_executable(image_projector src/image_projector.cpp)
+target_link_libraries(image_projector ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
+add_dependencies(image_projector ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+
 ## Mark executables for installation
 install(TARGETS 
   recorder

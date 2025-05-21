@@ -3,7 +3,6 @@
 #include <msg_file/ConstructionAction.h>
 #include <geometry_msgs/Twist.h>
 #include <sensor_msgs/LaserScan.h>
-#include <sensor_msgs/Imu.h>
 #include <yaml-cpp/yaml.h>
 #include <ros/package.h>
 #include <fstream>
@@ -21,7 +20,6 @@ private:
     // ROS communication
     ros::Publisher cmd_vel_pub_;
     ros::Subscriber laser_sub_;
-    ros::Subscriber imu_sub_;
 
     // LIDAR data
     sensor_msgs::LaserScan latest_scan_;
@@ -32,7 +30,13 @@ private:
     {
         MOVE_TO_WALL,
         TURN_LEFT_90,
+        TURN_LEFT_45,
+        MOVE_FORWARD_1,
+        TURN_RIGHT_90,
+        MOVE_FORWARD_2,
+        TURN_LEFT_90_2,
         TURN_LEFT_LAST,
+        TURN_LEFT_LAST_2,
         ALIGN_WITH_LEFT_WALL,
         ALIGN_WITH_RIGHT_WALL,
         MOVE_UNTIL_RIGHT_FRONT_CLEAR,
@@ -56,24 +60,11 @@ private:
         RAMP_COMPLETED
     };
 
-    enum RampPhase_2
-    {
-        RAMP_2_MOVE_TO_WALL,
-        RAMP_2_TURN_LEFT_PIVOT,
-        RAMP_2_MOVE_50CM,
-        RAMP_2_TURN_RIGHT_PIVOT_1,
-        RAMP_2_MOVE_50CM_2,
-        RAMP_2_TURN_LEFT,
-        RAMP_2_TURN_LEFT_PIVOT_FINAL,
-        RAMP_2_COMPLETED
-    };
-
     double wheel_base_;
     bool flag = false;
 
     RoundedPhase current_rounded_phase_;
     RampPhase current_ramp_phase_;
-    RampPhase_2 current_ramp_phase_2_;
 
     // Mode selection
     std::string mode_; // "rounded" or "ramp"
@@ -98,25 +89,6 @@ private:
     double ramp_final_threshold_;
     double pivot_angular_speed_;
 
-    bool use_imu_for_distance_;
-    double last_velocity_x_;
-    ros::Time last_imu_time_;
-
-    bool is_moving_distance_;
-    double target_distance_;
-    double distance_traveled_;
-    ros::Time distance_move_start_time_;
-
-    bool distance_move_started_;
-    double move_start_time_;
-    double move_distance_target_;
-    double move_distance_traveled_;
-
-    double initial_yaw_;
-    double current_yaw_;
-    double target_yaw_;
-    bool rotation_started_;
-
     // Turn tracking
     double turn_target_angle_;
     double current_angle_;
@@ -133,12 +105,7 @@ public:
                                            scan_received_(false),
                                            current_rounded_phase_(MOVE_TO_WALL),
                                            current_ramp_phase_(RAMP_MOVE_TO_WALL),
-                                           current_ramp_phase_2_(RAMP_2_MOVE_TO_WALL),
                                            current_angle_(0.0),
-                                           rotation_started_(false),
-                                           current_yaw_(0.0),
-                                           initial_yaw_(0.0),
-                                           target_yaw_(0.0),
                                            mode_("rounded") // Default mode
     {
         // Define config file paths (using the src/config directory)
@@ -154,7 +121,6 @@ public:
 
         // Subscribers
         laser_sub_ = nh_.subscribe("/scan", 1, &ConstructionServer::laserCallback, this);
-        imu_sub_ = nh_.subscribe("/imu", 1, &ConstructionServer::imuCallback, this);
 
         as_.start();
         ROS_INFO("Construction Action Server Started");
@@ -300,237 +266,6 @@ public:
     {
         latest_scan_ = *scan;
         scan_received_ = true;
-    }
-
-    void imuCallback(const sensor_msgs::Imu::ConstPtr &imu_msg)
-    {
-        // Get current timestamp
-        ros::Time current_time = ros::Time::now();
-
-        // Process orientation data
-        double roll, pitch, yaw;
-        double x = imu_msg->orientation.x;
-        double y = imu_msg->orientation.y;
-        double z = imu_msg->orientation.z;
-        double w = imu_msg->orientation.w;
-
-        // Convert quaternion to Euler angles
-        roll = atan2(2.0 * (w * x + y * z), 1.0 - 2.0 * (x * x + y * y));
-        pitch = asin(2.0 * (w * y - z * x));
-        yaw = atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z));
-
-        // If we're tracking distance with IMU
-        current_yaw_ = yaw;
-
-        if (use_imu_for_distance_ && last_imu_time_ != ros::Time(0))
-        {
-            // Calculate time elapsed since last IMU reading
-            double dt = (current_time - last_imu_time_).toSec();
-
-            // Get linear acceleration in robot frame
-            double accel_x = imu_msg->linear_acceleration.x;
-
-            // Simple velocity integration (would need filtering in practice)
-            double current_velocity_x = last_velocity_x_ + accel_x * dt;
-
-            // Calculate distance traveled during this time step
-            double distance_step = ((last_velocity_x_ + current_velocity_x) / 2.0) * dt;
-
-            // Update distance traveled if we're in distance movement mode
-            if (is_moving_distance_)
-            {
-                distance_traveled_ += std::abs(distance_step);
-
-                ROS_INFO_THROTTLE(0.5, "IMU Distance: %.4f/%.4f m, Vel: %.2f m/s, Accel: %.2f m/s²",
-                                  distance_traveled_, target_distance_, current_velocity_x, accel_x);
-                ROS_INFO_THROTTLE(1.0, "IMU Orientation - Roll: %.2f, Pitch: %.2f, Yaw: %.2f",
-                                  roll * 180.0 / M_PI, pitch * 180.0 / M_PI, yaw * 180.0 / M_PI);
-            }
-
-            // Update velocity for next integration
-            last_velocity_x_ = current_velocity_x;
-        }
-
-        // Update timestamp for next calculation
-        last_imu_time_ = current_time;
-    }
-
-    // Add this function to your class methods
-    void moveDistance(double distance)
-    {
-        // Reset distance tracking variables
-        distance_traveled_ = 0.0;
-        target_distance_ = std::abs(distance);
-        is_moving_distance_ = true;
-        distance_move_start_time_ = ros::Time::now();
-
-        // Set direction based on sign of distance
-        double direction = (distance >= 0) ? 1.0 : -1.0;
-
-        ROS_INFO("Moving %.2f meters", distance);
-
-        // Create and publish velocity command
-        geometry_msgs::Twist cmd;
-        cmd.linear.x = linear_speed_ * direction;
-        cmd.angular.z = 0.0;
-
-        ros::Rate rate(30); // 30Hz control loop
-
-        while (ros::ok() && is_moving_distance_)
-        {
-            // Calculate time elapsed
-            double elapsed = (ros::Time::now() - distance_move_start_time_).toSec();
-
-            // Estimate distance traveled based on time and speed
-            distance_traveled_ = elapsed * linear_speed_;
-
-            // Check if we've reached the target distance
-            if (distance_traveled_ >= target_distance_)
-            {
-                stopRobot();
-                is_moving_distance_ = false;
-                ROS_INFO("Target distance reached: %.2f meters", distance_traveled_);
-                break;
-            }
-
-            // Publish velocity command
-            cmd_vel_pub_.publish(cmd);
-
-            // Provide feedback
-            ROS_INFO_THROTTLE(0.5, "Moving: %.2f/%.2f meters completed",
-                              distance_traveled_, target_distance_);
-
-            rate.sleep();
-            ros::spinOnce();
-        }
-    }
-
-    bool moveDistanceInPhase(double target_distance, RampPhase_2 next_phase)
-    {
-        if (!distance_move_started_)
-        {
-            // Initialize movement tracking
-            distance_move_started_ = true;
-            move_start_time_ = ros::Time::now().toSec();
-            move_distance_target_ = target_distance;
-            move_distance_traveled_ = 0.0;
-            ROS_INFO("Starting to move %.2f meters forward", target_distance);
-        }
-
-        // Calculate distance traveled based on time and speed
-        double elapsed_time = ros::Time::now().toSec() - move_start_time_;
-        move_distance_traveled_ = elapsed_time * linear_speed_;
-
-        ROS_INFO_THROTTLE(0.5, "Moving distance: %.2f/%.2f meters",
-                          move_distance_traveled_, move_distance_target_);
-
-        // Check if we've reached the target distance
-        if (move_distance_traveled_ >= move_distance_target_)
-        {
-            // Movement complete, stop and go to next phase
-            stopRobot();
-            distance_move_started_ = false;
-            current_ramp_phase_2_ = next_phase;
-            turn_start_time_ = ros::Time::now();
-            ROS_INFO("Completed %.2f meter movement. Moving to next phase.", target_distance);
-            return true;
-        }
-        else
-        {
-            // Continue moving forward
-            moveForward();
-            return false;
-        }
-    }
-
-    bool rotateWithRadiusIMU(double angle_degrees, double radius, RampPhase_2 next_phase)
-    {
-        // Initialize rotation if it hasn't started yet
-        if (!rotation_started_)
-        {
-            // Record the initial yaw from the IMU
-            initial_yaw_ = current_yaw_;
-
-            // Calculate the target yaw
-            target_yaw_ = initial_yaw_ + (angle_degrees * M_PI / 180.0);
-
-            // Keep target_yaw in the range [-π, π]
-            while (target_yaw_ > M_PI)
-                target_yaw_ -= 2 * M_PI;
-            while (target_yaw_ < -M_PI)
-                target_yaw_ += 2 * M_PI;
-
-            rotation_started_ = true;
-
-            ROS_INFO("Starting rotation of %.2f degrees with radius %.2f m",
-                     angle_degrees, radius);
-            ROS_INFO("Initial yaw: %.2f, Target yaw: %.2f",
-                     initial_yaw_ * 180.0 / M_PI, target_yaw_ * 180.0 / M_PI);
-        }
-
-        // Debug information to see what's happening
-        double current_deg = current_yaw_ * 180.0 / M_PI;
-        double initial_deg = initial_yaw_ * 180.0 / M_PI;
-        double diff_deg = current_deg - initial_deg;
-
-        // Normalize the difference
-        while (diff_deg > 180)
-            diff_deg -= 360;
-        while (diff_deg < -180)
-            diff_deg += 360;
-
-        ROS_INFO_THROTTLE(1.0, "Current yaw: %.2f, Initial: %.2f, Diff: %.2f degrees",
-                          current_deg, initial_deg, diff_deg);
-
-        // Calculate if we've completed the rotation based on the actual angle changed
-        bool rotation_complete = false;
-        if (angle_degrees > 0 && diff_deg >= angle_degrees - 3.0)
-        {
-            rotation_complete = true;
-        }
-        else if (angle_degrees < 0 && diff_deg <= angle_degrees + 3.0)
-        {
-            rotation_complete = true;
-        }
-
-        if (rotation_complete)
-        {
-            stopRobot();
-            rotation_started_ = false;
-            current_ramp_phase_2_ = next_phase;
-
-            ROS_INFO("Rotation complete. Moving to next phase.");
-            return true;
-        }
-
-        // Determine rotation direction based on the target angle
-        bool turnRight = angle_degrees < 0;
-
-        // Calculate appropriate velocities
-        double min_radius = 0.1; // meters
-        double actual_radius = std::max(std::abs(radius), min_radius);
-
-        // For a point turn (radius = 0), set linear speed to 0
-        double linear_speed = (radius == 0) ? 0.0 : linear_speed_;
-
-        // Calculate angular velocity
-        double angular_speed = linear_speed / actual_radius;
-
-        // Apply direction
-        if (turnRight)
-            angular_speed = -angular_speed;
-
-        // Cap the angular speed
-        double max_angular = 0.8; // rad/s
-        angular_speed = std::max(-max_angular, std::min(angular_speed, max_angular));
-
-        // Create and publish velocity command
-        geometry_msgs::Twist cmd;
-        cmd.linear.x = linear_speed;
-        cmd.angular.z = angular_speed;
-        cmd_vel_pub_.publish(cmd);
-
-        return false;
     }
 
     double getDistanceInRange(double angle_degrees)
@@ -817,7 +552,7 @@ public:
                 {
                     // Close enough to the wall, stop and transition to next phase
                     stopRobot();
-                    current_rounded_phase_ = TURN_LEFT_90;
+                    current_rounded_phase_ = TURN_LEFT_45;
                     turn_start_time_ = ros::Time::now();
                     current_angle_ = 0;
                     ROS_INFO("Reached wall. Starting left turn.");
@@ -826,6 +561,146 @@ public:
                 {
                     // Move forward toward wall
                     moveForward();
+                }
+                break;
+            }
+
+            case TURN_LEFT_45:
+            {
+                feedback_.current_phase = "Turning left 90 degrees";
+
+                // Simple timed turn - 90 degrees
+                double turn_duration = 97.0 / (angular_speed_ * (180.0 / M_PI));
+                double elapsed = (ros::Time::now() - turn_start_time_).toSec();
+
+                ROS_INFO_THROTTLE(0.5, "Phase: Turn left 90, elapsed: %.2f, target: %.2f",
+                                  elapsed, turn_duration);
+
+                if (elapsed >= turn_duration)
+                {
+                    // Turn complete, stop and transition to next phase
+                    stopRobot();
+                    current_rounded_phase_ = MOVE_FORWARD_1;
+                    ROS_INFO("Left turn complete. Aligning with the Right Wall.");
+                }
+                else
+                {
+                    // Continue turning
+                    rotateLeft(angular_speed_);
+                }
+                break;
+            }
+
+            case MOVE_FORWARD_1:
+            {
+                feedback_.current_phase = "Ramp: Moving until 300° clear";
+                // Check at 300° (360-60)
+                double dist_300 = getDistanceInRange(360.0 - ramp_rotation_angle_);
+
+                ROS_INFO_THROTTLE(0.5, "Ramp Phase: Move until 300° clear, distance: %.2f (threshold: %.2f)",
+                                  dist_300, ramp_side_threshold_);
+
+                if (dist_300 > ramp_side_threshold_)
+                {
+                    stopRobot();
+                    current_rounded_phase_ = TURN_RIGHT_90;
+                    turn_start_time_ = ros::Time::now();
+                    ROS_INFO("300° clear. Starting first right pivot turn.");
+                }
+                else
+                {
+                    moveForward();
+                }
+                break;
+            }
+
+            case TURN_RIGHT_90:
+            {
+                feedback_.current_phase = "Turning right 180 degrees with radius";
+
+                // Set your desired radius directly in meters
+                double desired_radius = desired_radius_; // 0.5 meters radius
+                double linear_speed = linear_speed_;     // Lower for more control
+
+                // Calculate path length for a 180° turn with this radius
+                double arc_length = M_PI / 2 * desired_radius;
+
+                // Time to travel this arc = distance / speed
+                double expected_turn_time = arc_length / linear_speed;
+
+                double elapsed = (ros::Time::now() - turn_start_time_).toSec();
+
+                ROS_INFO_THROTTLE(0.5, "Radius turn: elapsed=%.2f/%.2f, radius=%.2f m, arc=%.2f m",
+                                  elapsed, expected_turn_time, desired_radius, arc_length);
+
+                if (elapsed >= expected_turn_time)
+                {
+                    // Turn complete, stop and transition to next phase
+                    stopRobot();
+                    current_rounded_phase_ = MOVE_FORWARD_2;
+                    ROS_INFO("Radius right turn complete. Moving until left front is clear.");
+                }
+                else
+                {
+                    // Continue radius turn - true = turn right, with specific radius
+                    turnWithRadius(true, desired_radius, linear_speed);
+                }
+                break;
+            }
+
+            case MOVE_FORWARD_2:
+            {
+                feedback_.current_phase = "Ramp: Moving until 300° clear";
+                // Check at 300° (360-60)
+                double dist_300 = getDistanceInRange(360.0 - ramp_rotation_angle_);
+
+                ROS_INFO_THROTTLE(0.5, "Ramp Phase: Move until 300° clear, distance: %.2f (threshold: %.2f)",
+                                  dist_300, ramp_side_threshold_);
+
+                if (dist_300 > ramp_side_threshold_)
+                {
+                    stopRobot();
+                    current_rounded_phase_ = TURN_RIGHT_90;
+                    turn_start_time_ = ros::Time::now();
+                    ROS_INFO("300° clear. Starting first right pivot turn.");
+                }
+                else
+                {
+                    moveForward();
+                }
+                break;
+            }
+
+            case TURN_LEFT_90_2:
+            {
+                feedback_.current_phase = "Turning left 180 degrees with radius";
+
+                // Set your desired radius directly in meters
+                double desired_radius = 0.2; // 0.5 meters radius
+                double linear_speed = 0.08;  // Lower for more control
+
+                // Calculate path length for a 180° turn with this radius
+                double arc_length = M_PI * desired_radius;
+
+                // Time to travel this arc = distance / speed
+                double expected_turn_time = arc_length / linear_speed;
+
+                double elapsed = (ros::Time::now() - turn_start_time_).toSec();
+
+                ROS_INFO_THROTTLE(0.5, "Radius turn: elapsed=%.2f/%.2f, radius=%.2f m, arc=%.2f m",
+                                  elapsed, expected_turn_time, desired_radius, arc_length);
+
+                if (elapsed >= expected_turn_time)
+                {
+                    // Turn complete, stop and transition to next phase
+                    stopRobot();
+                    current_rounded_phase_ = COMPLETED;
+                    ROS_INFO("Radius right turn complete. Mission completed.");
+                }
+                else
+                {
+                    // Continue radius turn - false = turn left, with specific radius
+                    turnWithRadius(false, desired_radius, linear_speed);
                 }
                 break;
             }
@@ -851,7 +726,7 @@ public:
                 else
                 {
                     // Continue turning
-                    turnLeft(angular_speed_);
+                    rotateLeft(angular_speed_);
                 }
                 break;
             }
@@ -956,7 +831,7 @@ public:
                 double linear_speed = linear_speed_;     // Lower for more control
 
                 // Calculate path length for a 180° turn with this radius
-                double arc_length = M_PI * desired_radius;
+                double arc_length = M_PI / 2 * desired_radius;
 
                 // Time to travel this arc = distance / speed
                 double expected_turn_time = arc_length / linear_speed;
@@ -991,9 +866,10 @@ public:
 
                 if (left_front_dist > wall_side_distance_threshold_)
                 {
-                    // Left front is clear, stop and transition to next phase
+                    // Left front is80 clear, stop and transition to next phase
                     stopRobot();
                     current_rounded_phase_ = TURN_LEFT_LAST;
+                    // current_rounded_phase_ = TURN_LEFT_LAST;
                     turn_start_time_ = ros::Time::now();
                     current_angle_ = 0;
                     ROS_INFO("Left front is clear. Starting left turn 180.");
@@ -1007,6 +883,32 @@ public:
             }
 
             case TURN_LEFT_LAST:
+            {
+                feedback_.current_phase = "Turning left 90 degrees";
+
+                // Simple timed turn - 90 degrees
+                double turn_duration = 97.0 / (angular_speed_ * (180.0 / M_PI));
+                double elapsed = (ros::Time::now() - turn_start_time_).toSec();
+
+                ROS_INFO_THROTTLE(0.5, "Phase: Turn left 90, elapsed: %.2f, target: %.2f",
+                                  elapsed, turn_duration);
+
+                if (elapsed >= turn_duration)
+                {
+                    // Turn complete, stop and transition to next phase
+                    stopRobot();
+                    current_rounded_phase_ = TURN_LEFT_LAST_2;
+                    ROS_INFO("Left turn complete. Starting left turn 180.");
+                }
+                else
+                {
+                    // Continue turning
+                    rotateLeft(angular_speed_);
+                }
+                break;
+            }
+
+            case TURN_LEFT_LAST_2:
             {
                 feedback_.current_phase = "Turning left 90 degrees";
 
@@ -1037,8 +939,8 @@ public:
                 feedback_.current_phase = "Turning left 180 degrees with radius";
 
                 // Set your desired radius directly in meters
-                double desired_radius = desired_radius_; // 0.5 meters radius
-                double linear_speed = linear_speed_;     // Lower for more control
+                double desired_radius = 0.2; // 0.5 meters radius
+                double linear_speed = 0.08;  // Lower for more control
 
                 // Calculate path length for a 180° turn with this radius
                 double arc_length = M_PI * desired_radius;
@@ -1313,121 +1215,6 @@ public:
         }
     }
 
-    void executeRamp2Mode()
-    {
-        ros::Rate r(10);
-        bool success = true;
-
-        while (ros::ok() && current_ramp_phase_2_ != RAMP_2_COMPLETED)
-        {
-            // Check if preempted
-            if (as_.isPreemptRequested() || !ros::ok())
-            {
-                ROS_INFO("%s: Preempted", action_name_.c_str());
-                as_.setPreempted();
-                success = false;
-                stopRobot();
-                break;
-            }
-
-            // Process current phase
-            switch (current_ramp_phase_2_)
-            {
-            case RAMP_2_MOVE_TO_WALL:
-            {
-                feedback_.current_phase = "Ramp2: Moving to wall";
-                double front_dist = getDistanceInRange(0.0); // 0 degree
-
-                ROS_INFO_THROTTLE(0.5, "Ramp2 Phase: Move to wall, front distance: %.2f (threshold: %.2f)",
-                                  front_dist, ramp_front_threshold_);
-
-                if (front_dist <= ramp_front_threshold_)
-                {
-                    stopRobot();
-                    current_ramp_phase_2_ = RAMP_2_TURN_LEFT_PIVOT;
-                    turn_start_time_ = ros::Time::now();
-                    ROS_INFO("Reached wall. Starting left pivot turn.");
-                }
-                else
-                {
-                    moveForward();
-                }
-                break;
-            }
-
-            case RAMP_2_TURN_LEFT_PIVOT:
-            {
-                feedback_.current_phase = "Ramp: Left pivot turn 30 degrees";
-
-                double angle_rad = ramp_rotation_angle_;
-
-                // For a 90 degree turn with 0.5m radius, transitioning to the RAMP_2_MOVE_50CM phase next
-                rotateWithRadiusIMU(angle_rad, 0.02, RAMP_2_MOVE_50CM);
-
-                break;
-            }
-
-            case RAMP_2_MOVE_50CM:
-            {
-                feedback_.current_phase = "Ramp2: Moving forward 50cm";
-                moveDistanceInPhase(0.335, RAMP_2_TURN_RIGHT_PIVOT_1);
-                break;
-            }
-
-            case RAMP_2_TURN_RIGHT_PIVOT_1:
-            {
-                feedback_.current_phase = "Ramp: First right pivot turn 120 degrees";
-
-                double angle_rad = -2 * ramp_rotation_angle_;
-
-                // For a 90 degree turn with 0.5m radius, transitioning to the RAMP_2_MOVE_50CM phase next
-                rotateWithRadiusIMU(angle_rad, 0.02, RAMP_2_MOVE_50CM_2);
-
-                break;
-            }
-
-            case RAMP_2_MOVE_50CM_2:
-            {
-                feedback_.current_phase = "Ramp2: Moving forward 50cm";
-                moveDistanceInPhase(0.4, RAMP_2_TURN_LEFT);
-                break;
-            }
-
-            case RAMP_2_TURN_LEFT:
-            {
-                feedback_.current_phase = "Ramp2: Turning Left without radius";
-
-                // For a 90 degree turn with 0.5m radius, transitioning to the RAMP_2_MOVE_50CM phase next
-                rotateWithRadiusIMU(ramp_rotation_angle_, 0.02, RAMP_2_TURN_LEFT_PIVOT_FINAL);
-
-                break;
-            }
-
-            case RAMP_2_TURN_LEFT_PIVOT_FINAL:
-            {
-                feedback_.current_phase = "Ramp2: Turning Left without radius";
-
-                // For a 90 degree turn with 0.5m radius, transitioning to the RAMP_2_MOVE_50CM phase next
-                rotateWithRadiusIMU(90.0, 0.3, RAMP_2_COMPLETED);
-
-                break;
-            }
-
-            case RAMP_2_COMPLETED:
-                // This should never execute, but just in case
-                break;
-            }
-
-            // Calculate time elapsed for feedback
-            feedback_.time_elapsed = (ros::Time::now() - phase_start_time_).toSec();
-
-            // Publish feedback
-            as_.publishFeedback(feedback_);
-
-            r.sleep();
-        }
-    }
-
     void executeCB(const msg_file::ConstructionGoalConstPtr &goal)
     {
         bool success = true;
@@ -1443,7 +1230,6 @@ public:
         // Reset phase counters
         current_rounded_phase_ = MOVE_TO_WALL;
         current_ramp_phase_ = RAMP_MOVE_TO_WALL;
-        current_ramp_phase_2_ = RAMP_2_MOVE_TO_WALL;
 
         ROS_INFO("Starting Construction Mission with mode: %s", mode_.c_str());
 
@@ -1471,10 +1257,6 @@ public:
         {
             executeRampMode();
         }
-        else if (mode_ == "ramp_2")
-        {
-            executeRamp2Mode();
-        }
         else
         {
             ROS_ERROR("Unknown mode: %s. Aborting mission.", mode_.c_str());
@@ -1484,8 +1266,7 @@ public:
 
         // Check if mission completed successfully
         if ((mode_ == "rounded" && current_rounded_phase_ == COMPLETED) ||
-            (mode_ == "ramp" && current_ramp_phase_ == RAMP_COMPLETED) ||
-            (mode_ == "ramp_2" && current_ramp_phase_2_ == RAMP_2_COMPLETED))
+            (mode_ == "ramp" && current_ramp_phase_ == RAMP_COMPLETED))
         {
             result_.success = true;
             ROS_INFO("%s: Construction mission succeeded", action_name_.c_str());

@@ -15,33 +15,34 @@
             <!-- <Sequence name="Mission 0: Traffic Light">
                 <TrafficLight timeout="60.0"/>
             </Sequence> -->
-            <!-- <Sequence name="Mission 1: Intersection">
-                <LaneDetect mode="center" sign="intersection"/>
-                <LaneDetect mode="center" sign="" duration="1.0"/> 
-                <LaneDetect mode="right" sign="" duration="60.0"/> 
-                <LaneDetect mode="right" sign="" duration="60.0"/> 
-                <LaneDetect mode="intersection" duration="300.0" sign=""/>   
-            </Sequence> -->
-
-            <!-- <Sequence name="Mission 2: Construction">
-                <LaneDetect mode="center" sign="construction" duration="15.0" speed="0.1"/> 
+            <Sequence name="Mission 1: Intersection">
+                <!-- <LaneDetect mode="center" sign="intersection"/> -->
                 <LaneDetect mode="center" sign="" duration="5.0"/> 
-                <LaneDetect mode="right" sign="" duration="30.0"/> 
-                <LaneDetect mode="right" sign="" duration="3.0"/> 
-                <LaneDetect mode="just-turn-left" duration="60.0" sign="right" speed="0.1"/>  
-                <Move mode="forward" until="front" distance="0.3"/>
-                <Rotate direction="align" angle="90.0"/> 
-                <Construction mode="ramp"/> 
-                <LaneDetect mode="just-turn-left" duration="60.0" sign="right"/>
-            </Sequence> -->
+                <!-- <LaneDetect mode="right" sign="" duration="60.0"/> 
+                <LaneDetect mode="right" sign="" duration="60.0"/>  -->
+                <LaneDetect mode="intersection" duration="300.0" sign=""/>   
+            </Sequence>
 
-            <!-- <Sequence name="Mission 3: Parking">
-                <LaneDetect mode="center" duration="3" sign="parking" speed="0.1"/>
+            <Sequence name="Mission 2: Construction">
+                <!-- <LaneDetect mode="center" sign="construction" duration="15.0" speed="0.1"/>  -->
+                <LaneDetect mode="center" sign="" duration="5.0"/> 
+                <LaneDetect mode="just-turn-left" duration="60.0" sign="right" speed="0.14"/>  
+                <!-- <Rotate direction="align" angle="-2.0"/>     -->   
+                <Construction mode="ramp_2"/> 
+                <!-- <Rotate direction="align" angle="85.0"/> -->
+                <!-- <Move mode="forward" until="timer" distance="5.0"/> -->
+                <!-- <LaneDetect mode="right" duration="6.0" sign=""/> -->
+            </Sequence>
+
+            <Sequence name="Mission 3: Parking">
+                <Move mode="forward" until="timer" distance="1.5"/>
+                <LaneDetect mode="center" duration="1" sign="parking" speed="0.1"/>
+                <!-- <Rotate direction="align" angle="90.0"/> -->
                 <LaneDetect mode="just-turn-left" duration="60.0" sign="left" speed="0.12"/>    
                 <Parking mode="dynamic"/>
-                <Rotate direction="align" angle="90.0"/> 
+                <!-- <Rotate direction="align" angle="0.0"/>  -->
                 <LaneDetect mode="just-turn-left" duration="10.0" sign="left"/>
-            </Sequence> -->
+            </Sequence>
 
             <!-- <Sequence name="Mission 4: Level Crossing">
                 <LaneDetect mode="center" duration="300.0" sign="stop"/>
@@ -49,7 +50,7 @@
                 <LaneDetect mode="center" duration="300.0" sign="tunnel"/>
             </Sequence> -->
 
-            <Sequence name="Mission 5: Tunnel">
+            <!-- <Sequence name="Mission 5: Tunnel">
                 <Move mode="forward" until="right" distance="1.0"/>
                 <Move mode="forward" until="timer" distance="3"/>
                 <Align by="right"/>
@@ -65,7 +66,7 @@
 
             <Sequence name="Mission 6: Finish">
                 <LaneDetect mode="center" duration="5.0" sign="" speed="0.12"/>
-            </Sequence>
+            </Sequence> -->
         </Sequence>
     </BehaviorTree>
 </root>
