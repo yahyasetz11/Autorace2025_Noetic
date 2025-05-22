@@ -9,15 +9,16 @@ tunnel_navigation:
   goal_poses:
     # - [-1.0, -0.9, -1.57]
     # - [-1.0, -1.7, 0.0]
-    - [-0.25, -1.7, 0.0]
+    - [1.75, 1.75, 1.57]
+    # - [0.1, 0.1, 1.57]
 
   # Map saving parameters
-  map_base_path: "~/Documents/Autorace2025_Noetic/src/maps/maps" # Base path for saved maps
+  map_base_path: "~/Documents/Autorace2025_Noetic/src/maps/maps4" # Base path for saved maps
 
   # Default goal (used if goal_poses is not defined, for backward compatibility)
   default_goal:
-    x: -0.2
-    y: -1.7
+    x: 1.8
+    y: 1.7
     yaw: 0.0 # In radians
 
   finish_area_width: 0.2 # Width of the square area around goal in meters

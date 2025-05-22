@@ -1,7 +1,7 @@
 # Speed control parameters
-max_linear_speed: 0.08 # Maximum linear speed (m/s)
-max_angular_speed: 1.8 # Maximum angular speed (rad/s)
-steering_sensitivity: 3.5 # Steering gain for lane following
+max_linear_speed: 0.1 # Maximum linear speed (m/s)
+max_angular_speed: 1.0 # Maximum angular speed (rad/s)
+steering_sensitivity: 3.0 # Steering gain for lane following
 non_linear_factor: 1.5 # Non-linear factor for steering response
 
 # Additional parameters
@@ -13,9 +13,9 @@ speed_reduction_factor: 0.7 # Factor to reduce speed when turning
 # pid_ki: 0 # Integral gain
 # pid_kd: 0.0 # Derivative gain
 
-pid_kp: 3 # Proportional gain 7 good (little bit higher)
+pid_kp: 5.5 # Proportional gain 7 good (little bit higher)
 pid_ki: 0 # Integral gain
-pid_kd: 0.5 # Derivative gain
+pid_kd: 0.7 # Derivative gain
 
 # pid_kp: 4.5 # Proportional gain 7 good (little bit higher)
 # pid_ki: 0 # Integral gain
@@ -26,4 +26,4 @@ use_sign_finding: true # Enable/disable sign-finding sequence
 use_x_sign: false # Enable/disable X sign behavior
 default_direction: "left" # Default direction if no sign detected
 sign_finding_timeout: 5.0 # Timeout for each sign-finding movement (seconds)
-sign_no_x_wait_time: 2.0 # Time to wait when use_x_sign is false (seconds)
+sign_no_x_wait_time: 0.0 # Time to wait when use_x_sign is false (seconds)

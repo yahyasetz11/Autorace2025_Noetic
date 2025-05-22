@@ -4,7 +4,7 @@
     <param name="camera_topic" value="/camera/image" />
     <param name="top_x" value="108" />
     <param name="top_y" value="0" />
-    <param name="bottom_x" value="157" />
+    <param name="bottom_x" value="114" />
     <param name="bottom_y" value="66" />
   </node>
 </launch>

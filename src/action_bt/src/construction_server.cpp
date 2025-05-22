@@ -1389,7 +1389,7 @@ public:
             case RAMP_2_MOVE_50CM_2:
             {
                 feedback_.current_phase = "Ramp2: Moving forward 50cm";
-                moveDistanceInPhase(0.4, RAMP_2_TURN_LEFT);
+                moveDistanceInPhase(0.41, RAMP_2_TURN_LEFT);
                 break;
             }
 

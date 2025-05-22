@@ -69,7 +69,7 @@ public:
                                         slam_init_process_id_(-1),
                                         navigation_timeout(300.0),
                                         goal_total(1),
-                                        map_base_path_("~/Documents/Autorace2025_Noetic/src/maps/maps"),
+                                        map_base_path_("~/Documents/Autorace2025_Noetic/src/maps"),
                                         finish_area_width_(0.4),   // Default 0.4m square area
                                         finish_area_timeout_(5.0), // Default 5 seconds
                                         in_finish_area_(false)     // Initially not in finish area
@@ -378,7 +378,7 @@ public:
         else if (mode == "offline")
         {
             // Launch offline SLAM (map server + AMCL + move_base) - run in background with &
-            std::string map_file = "map_file:=$HOME/Documents/Autorace2025_Noetic/src/maps/map_gazebo.yaml";
+            std::string map_file = "map_file:=$HOME/Documents/Autorace2025_Noetic/src/maps/map4.yaml";
             std::string cmd = "roslaunch launch_file localization_offline.launch " + map_file + " & echo $! > /tmp/slam_pid";
             int ret = system(cmd.c_str());
 

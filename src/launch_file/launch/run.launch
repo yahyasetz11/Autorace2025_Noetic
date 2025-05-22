@@ -3,5 +3,5 @@
   <include file="$(find launch_file)/launch/action_bt.launch"/>
   <include file="$(find launch_file)/launch/image_projector.launch"/>
   <node pkg="behaviortree" type="bt_main" name="bt_main"/>
-  <!-- <node pkg="yaw_tracker" type="yaw_tracker_node" name="yaw_tracker_node"/> -->
+  <node pkg="yaw_tracker" type="yaw_tracker_node" name="yaw_tracker_node"/>
 </launch>

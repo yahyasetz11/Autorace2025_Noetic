@@ -73,6 +73,8 @@ private:
     double intersection_initial_yaw_;         // Initial yaw when intersection mode starts
     bool intersection_yaw_recorded_;          // Whether initial yaw is recorded
     double yaw_tolerance_;                    // Tolerance for yaw comparison in degrees
+    bool turn_left_permanent_;
+    bool turn_right_permanent_;
 
     // Lane detection parameters
     int hue_white_l, hue_white_h;
@@ -137,6 +139,8 @@ public:
                                          intersection_turn_direction_(""),
                                          intersection_initial_yaw_(0.0),
                                          intersection_yaw_recorded_(false),
+                                         turn_left_permanent_(false),
+                                         turn_right_permanent_(false),
                                          yaw_tolerance_(10.0) // 10 degrees tolerance
     {
         recorded_left_lane_x_.resize(5, -1);
@@ -800,6 +804,14 @@ public:
                 // After seeing X sign, retry the turn
                 effective_mode = actual_driving_mode_; // Same direction as before
             }
+            else if (turn_left_permanent_)
+            {
+                effective_mode = "left";
+            }
+            else if (turn_right_permanent_)
+            {
+                effective_mode = "right";
+            }
             else
             {
                 // Otherwise follow center lane
@@ -943,15 +955,15 @@ public:
                     }
                 }
 
-                else if (region_has_left[r])
+                if (!region_has_left[r])
                 {
-                    // Only left lane, estimate center
-                    region_centers[r] = left_lane_x + recorded_right_lane_x_[r];
+                    region_centers[r] = 230;
                 }
-                else if (region_has_right[r])
+                else if (!region_has_right[r])
                 {
-                    // Only right lane, estimate center
-                    region_centers[r] = right_lane_x + recorded_left_lane_x_[r];
+                    // If right lane detected and we have previous offset,
+                    // estimate where left lane should be
+                    region_centers[r] = 700;
                 }
 
                 ROS_INFO("Left %d = %d ", r, left_lane_x);
@@ -995,11 +1007,16 @@ public:
                     {
                         region_centers[r] = left_lane_x + x_previous_;
                     }
-                    else if (region_has_right[r] && x_previous_ > 0)
+                    else if (region_has_right[r] && recorded_right_lane_x_[r] > 0)
+                    {
+                        region_centers[r] = 230;
+                    }
+                    else
                     {
                         // If right lane detected and we have previous offset,
                         // estimate where left lane should be
-                        region_centers[r] = right_lane_x - x_previous_;
+
+                        region_centers[r] = 230;
                     }
                 }
             }
@@ -1009,6 +1026,10 @@ public:
                 if (current_mode_ != "intersection")
                 {
                     // Right mode follows right lane with offset
+                    // if (region_has_left[r] && region_has_right[r])
+                    // {
+                    //     region_centers[r] = (left_lane_x + right_lane_x) / 2;
+                    // }
                     if (region_has_right[r])
                     {
                         int fake_left = right_lane_x + recorded_left_lane_x_[r];
@@ -1033,15 +1054,19 @@ public:
                 else
                 {
                     // Left mode follows left lane with offset
-                    if (region_has_left[r])
+                    if (region_has_right[r])
                     {
-                        region_centers[r] = left_lane_x + x_previous_;
+                        region_centers[r] = right_lane_x - x_previous_ + 75;
                     }
-                    else if (region_has_right[r] && x_previous_ > 0)
+                    else if (region_has_left[r] && recorded_left_lane_x_[r] < 0)
                     {
                         // If right lane detected and we have previous offset,
                         // estimate where left lane should be
-                        region_centers[r] = right_lane_x - x_previous_;
+                        region_centers[r] = 700;
+                    }
+                    else
+                    {
+                        region_centers[r] = 700;
                     }
                 }
             }
@@ -1399,12 +1424,39 @@ public:
                     // Just detected initial turn sign, start turning
                     ROS_INFO("Starting initial turn: %s", intersection_turn_direction_.c_str());
                 }
+                else if (!intersection_initial_turn_done_ && intersection_flag_ == 0 && sign_detected_)
+                {
+                    if (last_sign_data_ == 2)
+                    {
+                        actual_driving_mode_ = "left"; // Switch to center following
+                        turn_left_permanent_ = true;
+                        ROS_INFO("Set Turn_Left_Permanent");
+                    }
+                    else if (last_sign_data_ == 3)
+                    {
+                        actual_driving_mode_ = "right"; // Switch to center following
+                        turn_right_permanent_ = true;
+                        ROS_INFO("Set Turn_Right_Permanent");
+                    }
+                }
                 else if (!intersection_initial_turn_done_ && intersection_flag_ >= 1 && sign_detected_)
                 {
                     // Complete initial turn after seeing flag once
                     intersection_initial_turn_done_ = true;
-                    intersection_flag_ = 0;          // Reset flag counter
-                    actual_driving_mode_ = "center"; // Switch to center following
+                    intersection_flag_ = 0; // Reset flag counter
+                    if (last_sign_data_ == 2)
+                    {
+                        actual_driving_mode_ = "left"; // Switch to center following
+                        turn_left_permanent_ = true;
+                        ROS_INFO("Set Turn_Left_Permanent");
+                    }
+                    else if (last_sign_data_ == 3)
+                    {
+                        actual_driving_mode_ = "right"; // Switch to center following
+                        turn_right_permanent_ = true;
+                        ROS_INFO("Set Turn_Right_Permanent");
+                    }
+
                     ROS_INFO("Initial turn completed, switching to center mode to find X sign");
                 }
                 else if (intersection_initial_turn_done_ && intersection_x_sign_seen_ && intersection_flag_ >= 1)
@@ -1425,35 +1477,68 @@ public:
                         {
                             ROS_INFO_THROTTLE(1.0, "Both lanes detected but yaw not correct yet: %.2f degrees", yaw_diff);
                             // Continue following both lanes
-                            actual_driving_mode_ = "center";
+                            if (turn_left_permanent_)
+                            {
+                                actual_driving_mode_ = "left";
+                            }
+                            else if (turn_right_permanent_)
+                            {
+                                actual_driving_mode_ = "right";
+                            }
+                            // else
+                            // {
+                            //     actual_driving_mode_ = "center";
+                            // }
                         }
                     }
                 }
             }
-
-            if (time_condition || sign_condition || lane_condition || turn_condition || intersection_condition)
+            if (current_mode_ == "intersection")
             {
-                if (time_condition)
-                    ROS_INFO("Duration completed: %.2f seconds", duration);
-                if (sign_condition)
-                    ROS_INFO("Target sign detected: %s", target_sign_.c_str());
-                if (lane_condition)
-                    ROS_INFO("Lane condition met (flag=%d) while in %s mode",
-                             intersection_flag_, current_mode_.c_str());
-                if (turn_condition)
-                    ROS_INFO("Turn completed at target angle");
-                if (intersection_condition)
-                    ROS_INFO("Intersection completed successfully with correct yaw");
-
-                // Reset yaw values for future use
-                if (intersection_condition)
+                if (time_condition || intersection_condition)
                 {
-                    intersection_yaw_recorded_ = false;
-                    intersection_initial_yaw_ = 0.0;
-                }
+                    if (time_condition)
+                        ROS_INFO("Duration completed: %.2f seconds", duration);
+                    if (intersection_condition)
+                        ROS_INFO("Intersection completed successfully with correct yaw");
 
-                success = true;
-                break;
+                    // Reset yaw values for future use
+                    if (intersection_condition)
+                    {
+                        intersection_yaw_recorded_ = false;
+                        intersection_initial_yaw_ = 0.0;
+                    }
+
+                    success = true;
+                    break;
+                }
+            }
+            else
+            {
+                if (time_condition || sign_condition || lane_condition || turn_condition || intersection_condition)
+                {
+                    if (time_condition)
+                        ROS_INFO("Duration completed: %.2f seconds", duration);
+                    if (sign_condition)
+                        ROS_INFO("Target sign detected: %s", target_sign_.c_str());
+                    if (lane_condition)
+                        ROS_INFO("Lane condition met (flag=%d) while in %s mode",
+                                 intersection_flag_, current_mode_.c_str());
+                    if (turn_condition)
+                        ROS_INFO("Turn completed at target angle");
+                    if (intersection_condition)
+                        ROS_INFO("Intersection completed successfully with correct yaw");
+
+                    // Reset yaw values for future use
+                    if (intersection_condition)
+                    {
+                        intersection_yaw_recorded_ = false;
+                        intersection_initial_yaw_ = 0.0;
+                    }
+
+                    success = true;
+                    break;
+                }
             }
 
             // Special handlers for intersection mode state transitions
@@ -1474,8 +1559,8 @@ public:
                     // If sign-finding is enabled and we've waited a bit without detecting a sign
                     if (use_sign_finding_ &&
                         !in_sign_finding_mode_ &&
-                        both_lanes_detected_ &&                     // Only start when both lanes detected
-                        fabs(yaw_diff - (180.0)) <= yaw_tolerance_) // negative : counterclockwise
+                        both_lanes_detected_ &&                           // Only start when both lanes detected
+                        fabs(fabs(yaw_diff) - (180.0)) <= yaw_tolerance_) // negative : counterclockwise
                     // (ros::Time::now() - start_time_).toSec() > 5.0)
                     {
                         // Start sign-finding mode
@@ -1545,7 +1630,15 @@ public:
                     // Check if initial turn has one flag
                     intersection_initial_turn_done_ = true;
                     intersection_flag_ = 0; // Reset counter
-                    actual_driving_mode_ = "center";
+                    if (turn_left_permanent_)
+                    {
+                        actual_driving_mode_ = "left";
+                    }
+                    else if (turn_right_permanent_)
+                    {
+                        actual_driving_mode_ = "right";
+                    }
+
                     ROS_INFO("Initial turn done, looking for X sign");
                 }
                 else if (intersection_initial_turn_done_ && intersection_x_sign_seen_ && intersection_retry_count_ == 0)

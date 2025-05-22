@@ -8,7 +8,11 @@
   <param name="/amcl/initial_pose_y" value="-0.25"/>
   <param name="/amcl/initial_pose_a" value="-1.570796"/> -->
 
-  <param name="/amcl/initial_pose_x" value="0.3"/>
+  <!-- <param name="/amcl/initial_pose_x" value="-1.75"/>
+  <param name="/amcl/initial_pose_y" value="-1.75"/>
+  <param name="/amcl/initial_pose_a" value="-0.1"/> positive : counter-clockwise -->
+
+  <param name="/amcl/initial_pose_x" value="0.0"/>
   <param name="/amcl/initial_pose_y" value="0.0"/>
-  <param name="/amcl/initial_pose_a" value="0.05"/> <!-- positive : counter-clockwise-->
+  <param name="/amcl/initial_pose_a" value="0.0"/>
 </launch>

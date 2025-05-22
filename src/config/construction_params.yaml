@@ -18,7 +18,7 @@ construction:
 
   # Ramp mode parameters
   # ramp_rotation_angle: 60.0 # Angle to rotate in ramp mode (degrees)
-  ramp_rotation_angle: 30.0 # Angle to rotate in ramp mode (degrees)
+  ramp_rotation_angle: 35.0 # Angle to rotate in ramp mode (degrees)
   ramp_front_threshold: 0.45 # Distance threshold for front detection (m)
   ramp_side_threshold: 0.45 # Distance threshold for side detection (m)
   ramp_final_threshold: 0.30 # Distance threshold for final detection (m)
