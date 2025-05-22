@@ -47,7 +47,7 @@
                 <!-- <Rotate direction="counterclockwise" angle="90.0"/> -->
                 <!-- <Move mode="forward" until="back" distance="0.25"/> -->
                 <!-- <Rotate direction="clockwise" angle="90.0"/>  -->
-                <TunnelNav mode="offline" map_path="mamap4"/>
+                <TunnelNav mode="offline"/>
                 <Rotate direction="align" angle="90.0"/> 
                 <Align by="right"/>
                 <Rotate direction="clockwise" angle="5.0"/> 

@@ -8,6 +8,8 @@ cross_walking:
   detection_method: "red_only"
   # detection_method: "combined"
 
+  forward_timeout: 30.0 # Maximum time to move forward looking for crossing (seconds)
+
   # Detection thresholds
   detection_threshold: 900 # Pixel count threshold to consider crossing detected
   cleared_threshold: 50 # Pixel count threshold to consider crossing cleared

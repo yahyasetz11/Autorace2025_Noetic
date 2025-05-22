@@ -1,7 +1,7 @@
 traffic_light:
   # Camera topic
   # camera_topic: "/camera/image_projected_compensated"
-  camera_topic: "/camera_laptop"
+  camera_topic: "/camera/image"
 
   # Timing parameters
   green_confirmation_time: 1.0 # Time in seconds to confirm green light

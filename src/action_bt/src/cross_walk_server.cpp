@@ -8,6 +8,35 @@
 #include <geometry_msgs/Twist.h>
 #include <yaml-cpp/yaml.h>
 #include <ros/package.h>
+#include <cmath>
+
+// Simple PID controller structure
+struct PIDController
+{
+    double kp, ki, kd;
+    double setpoint;
+    double last_error;
+    double sum_error;
+
+    PIDController() : kp(0), ki(0), kd(0), setpoint(0), last_error(0), sum_error(0) {}
+
+    void setGains(double p, double i, double d)
+    {
+        kp = p;
+        ki = i;
+        kd = d;
+    }
+
+    double calculate(double input)
+    {
+        double error = setpoint - input;
+        sum_error += error;
+        double d_error = error - last_error;
+        last_error = error;
+
+        return kp * error + ki * sum_error + kd * d_error;
+    }
+};
 
 class CrossWalkServer
 {
@@ -23,26 +52,44 @@ private:
     image_transport::ImageTransport it_;
     image_transport::Subscriber image_sub_;
 
-    // Parameters for detection
+    // Parameters for crosswalk detection
     std::string camera_topic_;
     double forward_speed_;
+    double max_angular_speed_;
+    double forward_timeout_;
     int detection_threshold_;
     int cleared_threshold_;
-    int roi_x_;
-    int roi_y_;
-    int roi_width_;
-    int roi_height_;
-    std::string detection_method_; // "combined" or "red_only"
+    std::string detection_method_;
 
-    // HSV thresholds for red and white
-    int hue_red_low1_, hue_red_high1_; // First range for red (0-10)
-    int hue_red_low2_, hue_red_high2_; // Second range for red (170-180)
+    // Configuration file paths
+    std::string cross_config_path_;
+    std::string lane_color_config_path_;
+    std::string speed_config_path_;
+
+    // Crosswalk ROI parameters
+    int crosswalk_roi_x_, crosswalk_roi_y_;
+    int crosswalk_roi_width_, crosswalk_roi_height_;
+
+    // Lane detection parameters
+    int hue_white_l_, hue_white_h_;
+    int saturation_white_l_, saturation_white_h_;
+    int value_white_l_, value_white_h_;
+    int hue_yellow_l_, hue_yellow_h_;
+    int saturation_yellow_l_, saturation_yellow_h_;
+    int value_yellow_l_, value_yellow_h_;
+    double lane_roi_height_factor_;
+
+    // HSV thresholds for red and white crosswalk detection
+    int hue_red_low1_, hue_red_high1_;
+    int hue_red_low2_, hue_red_high2_;
     int saturation_red_low_, saturation_red_high_;
     int value_red_low_, value_red_high_;
-
     int hue_white_low_, hue_white_high_;
     int saturation_white_low_, saturation_white_high_;
     int value_white_low_, value_white_high_;
+
+    // PID controller for lane following
+    PIDController steering_pid_;
 
     // Variables for processing
     cv::Mat img_bgr_;
@@ -64,6 +111,9 @@ public:
         // Load parameters from YAML file
         loadParameters();
 
+        // Initialize PID controller
+        steering_pid_.setpoint = 0.0; // We want to center the robot
+
         // Publishers
         cmd_vel_pub_ = nh_.advertise<geometry_msgs::Twist>("/cmd_vel", 10);
 
@@ -72,51 +122,60 @@ public:
         image_sub_ = it_.subscribe(camera_topic_, 1, &CrossWalkServer::imageCallback, this);
 
         as_.start();
-        ROS_INFO("CrossWalk Action Server Started");
+        ROS_INFO("CrossWalk Action Server with Lane Detection Started");
     }
 
     ~CrossWalkServer()
     {
-        // Ensure the robot stops when the server shuts down
         stopRobot();
     }
 
     void loadParameters()
     {
+        // Define config file paths
+        std::string package_path = ros::package::getPath("action_bt");
+        cross_config_path_ = package_path + "/../config/cross_param.yaml";
+        lane_color_config_path_ = package_path + "/../config/color_lane.yaml";
+        speed_config_path_ = package_path + "/../config/speed_conf.yaml";
+
+        // Load crosswalk-specific parameters
+        loadCrosswalkParameters();
+
+        // Load lane detection parameters
+        loadLaneColorParameters();
+
+        // Load speed and PID parameters
+        loadSpeedParameters();
+
+        ROS_INFO("Successfully loaded parameters from multiple config files");
+        ROS_INFO("  Cross config: %s", cross_config_path_.c_str());
+        ROS_INFO("  Lane color config: %s", lane_color_config_path_.c_str());
+        ROS_INFO("  Speed config: %s", speed_config_path_.c_str());
+    }
+
+    void loadCrosswalkParameters()
+    {
         try
         {
-            // Get the package path
-            std::string package_path = ros::package::getPath("action_bt");
-            if (package_path.empty())
-            {
-                package_path = ros::package::getPath("behaviortree");
-            }
+            YAML::Node config = YAML::LoadFile(cross_config_path_);
 
-            // Build the path to the config file
-            std::string config_path = package_path + "/../config/cross_param.yaml";
-
-            // Load the YAML file
-            YAML::Node config = YAML::LoadFile(config_path);
-
-            // Extract parameters with defaults
+            // Extract crosswalk-specific parameters
             camera_topic_ = config["cross_walking"]["camera_topic"] ? config["cross_walking"]["camera_topic"].as<std::string>() : "/camera/image_projected_compensated";
-
             forward_speed_ = config["cross_walking"]["forward_speed"] ? config["cross_walking"]["forward_speed"].as<double>() : 0.08;
+            forward_timeout_ = config["cross_walking"]["forward_timeout"] ? config["cross_walking"]["forward_timeout"].as<double>() : 30.0;
 
+            // Crosswalk detection parameters
             detection_threshold_ = config["cross_walking"]["detection_threshold"] ? config["cross_walking"]["detection_threshold"].as<int>() : 200;
-
             cleared_threshold_ = config["cross_walking"]["cleared_threshold"] ? config["cross_walking"]["cleared_threshold"].as<int>() : 50;
-
-            // Detection method - default to combined
             detection_method_ = config["cross_walking"]["detection_method"] ? config["cross_walking"]["detection_method"].as<std::string>() : "combined";
 
-            // ROI parameters
-            roi_x_ = config["cross_walking"]["roi_x"] ? config["cross_walking"]["roi_x"].as<int>() : 120;
-            roi_y_ = config["cross_walking"]["roi_y"] ? config["cross_walking"]["roi_y"].as<int>() : 150;
-            roi_width_ = config["cross_walking"]["roi_width"] ? config["cross_walking"]["roi_width"].as<int>() : 80;
-            roi_height_ = config["cross_walking"]["roi_height"] ? config["cross_walking"]["roi_height"].as<int>() : 40;
+            // Crosswalk ROI parameters
+            crosswalk_roi_x_ = config["cross_walking"]["crosswalk_roi_x"] ? config["cross_walking"]["crosswalk_roi_x"].as<int>() : 120;
+            crosswalk_roi_y_ = config["cross_walking"]["crosswalk_roi_y"] ? config["cross_walking"]["crosswalk_roi_y"].as<int>() : 150;
+            crosswalk_roi_width_ = config["cross_walking"]["crosswalk_roi_width"] ? config["cross_walking"]["crosswalk_roi_width"].as<int>() : 80;
+            crosswalk_roi_height_ = config["cross_walking"]["crosswalk_roi_height"] ? config["cross_walking"]["crosswalk_roi_height"].as<int>() : 40;
 
-            // Red color thresholds (two ranges because red wraps around in HSV)
+            // Crosswalk color thresholds
             hue_red_low1_ = config["cross_walking"]["hue_red_low1"] ? config["cross_walking"]["hue_red_low1"].as<int>() : 0;
             hue_red_high1_ = config["cross_walking"]["hue_red_high1"] ? config["cross_walking"]["hue_red_high1"].as<int>() : 10;
             hue_red_low2_ = config["cross_walking"]["hue_red_low2"] ? config["cross_walking"]["hue_red_low2"].as<int>() : 170;
@@ -126,7 +185,6 @@ public:
             value_red_low_ = config["cross_walking"]["value_red_low"] ? config["cross_walking"]["value_red_low"].as<int>() : 100;
             value_red_high_ = config["cross_walking"]["value_red_high"] ? config["cross_walking"]["value_red_high"].as<int>() : 255;
 
-            // White color thresholds
             hue_white_low_ = config["cross_walking"]["hue_white_low"] ? config["cross_walking"]["hue_white_low"].as<int>() : 0;
             hue_white_high_ = config["cross_walking"]["hue_white_high"] ? config["cross_walking"]["hue_white_high"].as<int>() : 180;
             saturation_white_low_ = config["cross_walking"]["saturation_white_low"] ? config["cross_walking"]["saturation_white_low"].as<int>() : 0;
@@ -134,47 +192,145 @@ public:
             value_white_low_ = config["cross_walking"]["value_white_low"] ? config["cross_walking"]["value_white_low"].as<int>() : 200;
             value_white_high_ = config["cross_walking"]["value_white_high"] ? config["cross_walking"]["value_white_high"].as<int>() : 255;
 
-            ROS_INFO("Loaded parameters from %s", config_path.c_str());
-            ROS_INFO("  camera_topic: %s", camera_topic_.c_str());
-            ROS_INFO("  forward_speed: %.2f", forward_speed_);
-            ROS_INFO("  detection_threshold: %d", detection_threshold_);
-            ROS_INFO("  cleared_threshold: %d", cleared_threshold_);
-            ROS_INFO("  detection_method: %s", detection_method_.c_str());
-            ROS_INFO("  ROI: x=%d, y=%d, w=%d, h=%d", roi_x_, roi_y_, roi_width_, roi_height_);
+            ROS_INFO("Loaded crosswalk parameters from %s", cross_config_path_.c_str());
         }
         catch (const YAML::Exception &e)
         {
-            ROS_ERROR("Error loading configuration YAML file: %s", e.what());
-            ROS_WARN("Using default parameters");
+            ROS_ERROR("Error loading crosswalk configuration YAML file: %s", e.what());
+            ROS_WARN("Using default crosswalk parameters");
 
-            // Set default values
+            // Set crosswalk defaults
             camera_topic_ = "/camera/image_projected_compensated";
             forward_speed_ = 0.08;
+            forward_timeout_ = 30.0;
             detection_threshold_ = 200;
             cleared_threshold_ = 50;
             detection_method_ = "combined";
-            roi_x_ = 120;
-            roi_y_ = 150;
-            roi_width_ = 80;
-            roi_height_ = 40;
+            crosswalk_roi_x_ = 120;
+            crosswalk_roi_y_ = 150;
+            crosswalk_roi_width_ = 80;
+            crosswalk_roi_height_ = 40;
+        }
+    }
 
-            // Default red color thresholds
-            hue_red_low1_ = 0;
-            hue_red_high1_ = 10;
-            hue_red_low2_ = 170;
-            hue_red_high2_ = 180;
-            saturation_red_low_ = 100;
-            saturation_red_high_ = 255;
-            value_red_low_ = 100;
-            value_red_high_ = 255;
+    void loadLaneColorParameters()
+    {
+        try
+        {
+            YAML::Node config = YAML::LoadFile(lane_color_config_path_);
 
-            // Default white color thresholds
-            hue_white_low_ = 0;
-            hue_white_high_ = 180;
-            saturation_white_low_ = 0;
-            saturation_white_high_ = 30;
-            value_white_low_ = 200;
-            value_white_high_ = 255;
+            // Extract white lane parameters
+            if (config["white_lane"])
+            {
+                auto white_lane = config["white_lane"];
+                hue_white_l_ = white_lane["hue"]["low"] ? white_lane["hue"]["low"].as<int>() : 0;
+                hue_white_h_ = white_lane["hue"]["high"] ? white_lane["hue"]["high"].as<int>() : 179;
+                saturation_white_l_ = white_lane["saturation"]["low"] ? white_lane["saturation"]["low"].as<int>() : 0;
+                saturation_white_h_ = white_lane["saturation"]["high"] ? white_lane["saturation"]["high"].as<int>() : 70;
+                value_white_l_ = white_lane["value"]["low"] ? white_lane["value"]["low"].as<int>() : 165;
+                value_white_h_ = white_lane["value"]["high"] ? white_lane["value"]["high"].as<int>() : 255;
+            }
+            else
+            {
+                ROS_WARN("White lane section not found in color config file. Using defaults.");
+                hue_white_l_ = 0;
+                hue_white_h_ = 179;
+                saturation_white_l_ = 0;
+                saturation_white_h_ = 70;
+                value_white_l_ = 165;
+                value_white_h_ = 255;
+            }
+
+            // Extract yellow lane parameters
+            if (config["yellow_lane"])
+            {
+                auto yellow_lane = config["yellow_lane"];
+                hue_yellow_l_ = yellow_lane["hue"]["low"] ? yellow_lane["hue"]["low"].as<int>() : 10;
+                hue_yellow_h_ = yellow_lane["hue"]["high"] ? yellow_lane["hue"]["high"].as<int>() : 50;
+                saturation_yellow_l_ = yellow_lane["saturation"]["low"] ? yellow_lane["saturation"]["low"].as<int>() : 100;
+                saturation_yellow_h_ = yellow_lane["saturation"]["high"] ? yellow_lane["saturation"]["high"].as<int>() : 255;
+                value_yellow_l_ = yellow_lane["value"]["low"] ? yellow_lane["value"]["low"].as<int>() : 100;
+                value_yellow_h_ = yellow_lane["value"]["high"] ? yellow_lane["value"]["high"].as<int>() : 255;
+            }
+            else
+            {
+                ROS_WARN("Yellow lane section not found in color config file. Using defaults.");
+                hue_yellow_l_ = 10;
+                hue_yellow_h_ = 50;
+                saturation_yellow_l_ = 100;
+                saturation_yellow_h_ = 255;
+                value_yellow_l_ = 100;
+                value_yellow_h_ = 255;
+            }
+
+            // Extract ROI parameters
+            if (config["roi"])
+            {
+                lane_roi_height_factor_ = config["roi"]["height_factor"] ? config["roi"]["height_factor"].as<double>() : 0.5;
+            }
+            else
+            {
+                ROS_WARN("ROI section not found in color config file. Using default.");
+                lane_roi_height_factor_ = 0.5;
+            }
+
+            ROS_INFO("Loaded lane color parameters from %s", lane_color_config_path_.c_str());
+            ROS_INFO("  White lane HSV: H=[%d,%d], S=[%d,%d], V=[%d,%d]",
+                     hue_white_l_, hue_white_h_, saturation_white_l_, saturation_white_h_, value_white_l_, value_white_h_);
+            ROS_INFO("  Yellow lane HSV: H=[%d,%d], S=[%d,%d], V=[%d,%d]",
+                     hue_yellow_l_, hue_yellow_h_, saturation_yellow_l_, saturation_yellow_h_, value_yellow_l_, value_yellow_h_);
+        }
+        catch (const YAML::Exception &e)
+        {
+            ROS_ERROR("Error loading lane color configuration YAML file: %s", e.what());
+            ROS_WARN("Using default lane color parameters");
+
+            // Set lane color defaults
+            hue_white_l_ = 0;
+            hue_white_h_ = 179;
+            saturation_white_l_ = 0;
+            saturation_white_h_ = 70;
+            value_white_l_ = 165;
+            value_white_h_ = 255;
+            hue_yellow_l_ = 10;
+            hue_yellow_h_ = 50;
+            saturation_yellow_l_ = 100;
+            saturation_yellow_h_ = 255;
+            value_yellow_l_ = 100;
+            value_yellow_h_ = 255;
+            lane_roi_height_factor_ = 0.5;
+        }
+    }
+
+    void loadSpeedParameters()
+    {
+        try
+        {
+            YAML::Node config = YAML::LoadFile(speed_config_path_);
+
+            // Extract speed parameters
+            max_angular_speed_ = config["max_angular_speed"] ? config["max_angular_speed"].as<double>() : 1.5;
+
+            // Extract PID parameters
+            double pid_kp = config["pid_kp"] ? config["pid_kp"].as<double>() : 5.0;
+            double pid_ki = config["pid_ki"] ? config["pid_ki"].as<double>() : 0.0;
+            double pid_kd = config["pid_kd"] ? config["pid_kd"].as<double>() : 0.0;
+
+            // Set PID gains (note: kp is already negative in speed_conf.yaml)
+            steering_pid_.setGains(pid_kp, pid_ki, pid_kd);
+
+            ROS_INFO("Loaded speed parameters from %s", speed_config_path_.c_str());
+            ROS_INFO("  max_angular_speed: %.2f rad/s", max_angular_speed_);
+            ROS_INFO("  PID parameters: kp=%.3f, ki=%.3f, kd=%.3f", pid_kp, pid_ki, pid_kd);
+        }
+        catch (const YAML::Exception &e)
+        {
+            ROS_ERROR("Error loading speed configuration YAML file: %s", e.what());
+            ROS_WARN("Using default speed parameters");
+
+            // Set speed defaults
+            max_angular_speed_ = 1.5;
+            steering_pid_.setGains(-5.0, 0.0, 0.7);
         }
     }
 
@@ -197,7 +353,7 @@ public:
         }
     }
 
-    int detectCrossWalk()
+    int detectCrossWalk(cv::Mat &debug_img)
     {
         if (!image_received_)
         {
@@ -205,14 +361,8 @@ public:
             return 0;
         }
 
-        // Create debug image
-        cv::Mat debug_img = img_bgr_.clone();
-
-        // Define ROI
-        cv::Rect roi(roi_x_, roi_y_, roi_width_, roi_height_);
-
-        // Draw ROI on debug image
-        cv::rectangle(debug_img, roi, cv::Scalar(0, 255, 0), 2);
+        // Define crosswalk ROI
+        cv::Rect crosswalk_roi(crosswalk_roi_x_, crosswalk_roi_y_, crosswalk_roi_width_, crosswalk_roi_height_);
 
         // Create masks for red color (using two ranges since red wraps around in HSV)
         cv::Mat red_mask1, red_mask2, red_mask;
@@ -228,85 +378,167 @@ public:
 
         // Final mask based on detection method
         cv::Mat final_mask;
-
         if (detection_method_ == "red_only")
         {
-            // Use only red mask
             final_mask = red_mask.clone();
-
-            // Display method on debug image
-            cv::putText(debug_img, "Method: RED ONLY", cv::Point(10, 120),
-                        cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 0, 255), 2);
         }
         else
         {
-            // Default: Use combined red and white masks (the original method)
+            // Combined red and white masks
             cv::Mat white_mask;
             cv::inRange(img_hsv_,
                         cv::Scalar(hue_white_low_, saturation_white_low_, value_white_low_),
                         cv::Scalar(hue_white_high_, saturation_white_high_, value_white_high_),
                         white_mask);
-
-            // Combine red and white masks
             cv::bitwise_or(red_mask, white_mask, final_mask);
-
-            // Display method on debug image
-            cv::putText(debug_img, "Method: RED + WHITE", cv::Point(10, 120),
-                        cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 0, 255), 2);
         }
 
-        // Apply ROI to the mask
-        cv::Mat roi_mask = final_mask(roi);
-
-        // Count non-zero pixels in the ROI
+        // Apply crosswalk ROI to the mask
+        cv::Mat roi_mask = final_mask(crosswalk_roi);
         int pixel_count = cv::countNonZero(roi_mask);
 
-        // Display visualization
-        // Show pixel count
-        std::string count_text = "Pixel count: " + std::to_string(pixel_count);
-        cv::putText(debug_img, count_text, cv::Point(10, 30),
-                    cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 255, 255), 2);
-
-        // Show detection status
-        std::string status;
-        cv::Scalar status_color;
-
-        if (crossing_detected_ && !crossing_cleared_)
+        // Visualization
+        if (!debug_img.empty())
         {
-            status = "STOPPING AT CROSSING";
-            status_color = cv::Scalar(0, 0, 255); // Red color
+            // Draw crosswalk ROI
+            cv::rectangle(debug_img, crosswalk_roi, cv::Scalar(0, 255, 0), 2);
+
+            // Show crosswalk detection info
+            std::string count_text = "Crosswalk Pixels: " + std::to_string(pixel_count);
+            cv::putText(debug_img, count_text, cv::Point(10, 30),
+                        cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 255, 255), 2);
+
+            // Show timeout information
+            double time_elapsed = (ros::Time::now() - start_time_).toSec();
+            std::string timeout_text = "Time: " + std::to_string((int)time_elapsed) + "/" + std::to_string((int)forward_timeout_) + "s";
+            cv::putText(debug_img, timeout_text, cv::Point(10, 60),
+                        cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 255, 255), 2);
         }
-        else if (crossing_detected_ && crossing_cleared_)
-        {
-            status = "CROSSING CLEARED";
-            status_color = cv::Scalar(0, 255, 0); // Green color
-        }
-        else
-        {
-            status = "LOOKING FOR CROSSING";
-            status_color = cv::Scalar(255, 255, 0); // Yellow color
-        }
-
-        cv::putText(debug_img, status, cv::Point(10, 60),
-                    cv::FONT_HERSHEY_SIMPLEX, 0.7, status_color, 2);
-
-        // Show threshold values
-        std::string threshold_text = "Detection: " + std::to_string(detection_threshold_) +
-                                     ", Cleared: " + std::to_string(cleared_threshold_);
-        cv::putText(debug_img, threshold_text, cv::Point(10, 90),
-                    cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 255, 255), 2);
-
-        // Show result image
-        cv::imshow("CrossWalk Detection", debug_img);
-
-        // Also show the masks for debugging
-        cv::Mat roi_debug = roi_mask.clone();
-        cv::resize(roi_debug, roi_debug, cv::Size(roi_width_ * 3, roi_height_ * 3));
-        cv::imshow("ROI Mask", roi_debug);
-
-        cv::waitKey(1);
 
         return pixel_count;
+    }
+
+    void followLaneAndDetectCrosswalk(cv::Mat &debug_img)
+    {
+        if (!image_received_)
+        {
+            ROS_WARN_THROTTLE(1, "No camera image received yet!");
+            return;
+        }
+
+        int height = img_bgr_.rows;
+        int width = img_bgr_.cols;
+        int center_x = width / 2;
+
+        // Create masks for white and yellow lanes
+        cv::Mat img_white_mask, img_yellow_mask;
+        cv::Scalar lower_white = cv::Scalar(hue_white_l_, saturation_white_l_, value_white_l_);
+        cv::Scalar upper_white = cv::Scalar(hue_white_h_, saturation_white_h_, value_white_h_);
+        cv::Scalar lower_yellow = cv::Scalar(hue_yellow_l_, saturation_yellow_l_, value_yellow_l_);
+        cv::Scalar upper_yellow = cv::Scalar(hue_yellow_h_, saturation_yellow_h_, value_yellow_h_);
+
+        cv::inRange(img_hsv_, lower_white, upper_white, img_white_mask);
+        cv::inRange(img_hsv_, lower_yellow, upper_yellow, img_yellow_mask);
+
+        // Combine masks
+        cv::Mat lane_mask = cv::Mat::zeros(height, width, CV_8UC1);
+        cv::bitwise_or(img_white_mask, img_yellow_mask, lane_mask);
+
+        // Apply lane ROI mask
+        cv::Mat roi_mask = cv::Mat::zeros(height, width, CV_8UC1);
+        int roi_top = height * (1.0 - lane_roi_height_factor_);
+        std::vector<cv::Point> roi_points;
+        roi_points.push_back(cv::Point(0, height));
+        roi_points.push_back(cv::Point(width, height));
+        roi_points.push_back(cv::Point(width, roi_top));
+        roi_points.push_back(cv::Point(0, roi_top));
+        cv::fillConvexPoly(roi_mask, roi_points, cv::Scalar(255, 0, 0));
+        cv::bitwise_and(lane_mask, roi_mask, lane_mask);
+
+        // Apply Gaussian blur
+        cv::GaussianBlur(lane_mask, lane_mask, cv::Size(5, 5), 0);
+
+        // Calculate lane center
+        int numRegions = 3;
+        double total_offset = 0.0;
+        int valid_regions = 0;
+
+        for (int r = 0; r < numRegions; r++)
+        {
+            int y = height - (r + 1) * (height / (numRegions + 1));
+            int left_sum = 0, right_sum = 0;
+            int left_weighted_sum = 0, right_weighted_sum = 0;
+
+            for (int x = 0; x < width; x++)
+            {
+                if (lane_mask.at<uchar>(y, x) > 0)
+                {
+                    if (x < center_x)
+                    {
+                        left_sum++;
+                        left_weighted_sum += x;
+                    }
+                    else
+                    {
+                        right_sum++;
+                        right_weighted_sum += x;
+                    }
+                }
+            }
+
+            // Calculate lane center for this region
+            if (left_sum > 10 && right_sum > 10)
+            {
+                int left_lane_x = left_weighted_sum / left_sum;
+                int right_lane_x = right_weighted_sum / right_sum;
+                int lane_center = (left_lane_x + right_lane_x) / 2;
+
+                double offset = (lane_center - center_x) / (double)(width / 2);
+                total_offset += offset;
+                valid_regions++;
+
+                // Debug visualization
+                if (!debug_img.empty())
+                {
+                    cv::circle(debug_img, cv::Point(left_lane_x, y), 3, cv::Scalar(255, 0, 0), -1);
+                    cv::circle(debug_img, cv::Point(right_lane_x, y), 3, cv::Scalar(0, 255, 0), -1);
+                    cv::circle(debug_img, cv::Point(lane_center, y), 5, cv::Scalar(0, 0, 255), -1);
+                }
+            }
+        }
+
+        // Calculate steering command
+        double angular_z = 0.0;
+        if (valid_regions > 0)
+        {
+            double avg_offset = total_offset / valid_regions;
+            angular_z = steering_pid_.calculate(avg_offset);
+
+            // Limit angular velocity
+            if (angular_z > max_angular_speed_)
+                angular_z = max_angular_speed_;
+            if (angular_z < -max_angular_speed_)
+                angular_z = -max_angular_speed_;
+        }
+
+        // Calculate linear velocity (reduce when turning)
+        double linear_x = forward_speed_ * (1.0 - 0.5 * fabs(angular_z / max_angular_speed_));
+
+        // Send movement command
+        geometry_msgs::Twist cmd;
+        cmd.linear.x = linear_x;
+        cmd.angular.z = angular_z;
+        cmd_vel_pub_.publish(cmd);
+
+        // Debug info
+        if (!debug_img.empty())
+        {
+            std::string lane_text = "Lane Following: linear=" + std::to_string(linear_x) + ", angular=" + std::to_string(angular_z);
+            cv::putText(debug_img, lane_text, cv::Point(10, 90),
+                        cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 255, 0), 2);
+        }
+
+        ROS_INFO_THROTTLE(0.5, "Lane following: linear=%.2f, angular=%.2f", linear_x, angular_z);
     }
 
     void stopRobot()
@@ -318,14 +550,6 @@ public:
         ROS_INFO("Robot stopped");
     }
 
-    void moveForward()
-    {
-        geometry_msgs::Twist cmd;
-        cmd.linear.x = forward_speed_;
-        cmd.angular.z = 0.0;
-        cmd_vel_pub_.publish(cmd);
-    }
-
     void executeCB(const msg_file::CrossWalkGoalConstPtr &goal)
     {
         bool success = true;
@@ -335,10 +559,9 @@ public:
 
         ros::Rate r(10); // 10 Hz loop rate
 
-        ROS_INFO("CrossWalk action started");
-        ROS_INFO("Using detection method: %s", detection_method_.c_str());
+        ROS_INFO("CrossWalk action with lane following started");
 
-        // Wait for first image to arrive
+        // Wait for first image
         while (!image_received_ && ros::ok())
         {
             if ((ros::Time::now() - start_time_).toSec() > 5.0)
@@ -354,7 +577,7 @@ public:
 
         enum State
         {
-            APPROACHING,  // Moving forward until crossing detected
+            APPROACHING,  // Following lane until crossing detected
             WAITING,      // Stopped at crossing
             MOVING_AFTER, // Moving forward after crossing cleared
             COMPLETED     // Action completed
@@ -375,15 +598,32 @@ public:
                 break;
             }
 
-            // Process image to detect crossing
-            int pixel_count = detectCrossWalk();
+            // Create debug image
+            cv::Mat debug_img;
+            if (image_received_)
+            {
+                debug_img = img_bgr_.clone();
+            }
 
-            // State machine for crossing behavior
+            // Process image to detect crossing
+            int pixel_count = detectCrossWalk(debug_img);
+
+            // State machine
             switch (current_state)
             {
             case APPROACHING:
-                // Move forward until crossing detected
-                moveForward();
+            {
+                // Check for timeout first
+                double time_elapsed = (ros::Time::now() - start_time_).toSec();
+                if (time_elapsed >= forward_timeout_)
+                {
+                    ROS_INFO("Forward timeout reached (%.2f seconds). No crossing detected, completing mission successfully.", time_elapsed);
+                    current_state = COMPLETED;
+                    break;
+                }
+
+                // Follow lane while looking for crosswalk
+                followLaneAndDetectCrosswalk(debug_img);
 
                 // Check if crossing detected
                 if (pixel_count >= detection_threshold_)
@@ -395,21 +635,26 @@ public:
                     current_state = WAITING;
                 }
                 break;
+            }
 
             case WAITING:
+            {
                 // Wait until crossing cleared
                 if (pixel_count <= cleared_threshold_)
                 {
                     ROS_INFO("Crossing cleared! Moving forward.");
                     crossing_cleared_ = true;
                     cleared_time = ros::Time::now();
-                    moveForward();
                     current_state = MOVING_AFTER;
                 }
                 break;
+            }
 
             case MOVING_AFTER:
-                // Move forward for 1 second after crossing cleared
+            {
+                // Continue lane following for 1 second after crossing cleared
+                followLaneAndDetectCrosswalk(debug_img);
+
                 if ((ros::Time::now() - cleared_time).toSec() >= 1.0)
                 {
                     ROS_INFO("Finished moving after crossing. Mission complete.");
@@ -417,10 +662,17 @@ public:
                     current_state = COMPLETED;
                 }
                 break;
+            }
 
             case COMPLETED:
-                // Should never reach this case due to loop condition
                 break;
+            }
+
+            // Show debug visualization
+            if (!debug_img.empty())
+            {
+                cv::imshow("CrossWalk with Lane Detection", debug_img);
+                cv::waitKey(1);
             }
 
             // Publish feedback
