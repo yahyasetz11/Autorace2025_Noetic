@@ -50,10 +50,12 @@ private:
     // ROS communication
     ros::Publisher cmd_vel_pub_;
     image_transport::ImageTransport it_;
-    image_transport::Subscriber image_sub_;
+    image_transport::Subscriber front_image_sub_; // For crosswalk detection
+    image_transport::Subscriber lane_image_sub_;  // For lane detection
 
     // Parameters for crosswalk detection
-    std::string camera_topic_;
+    std::string camera_topic_front_; // Front camera topic
+    std::string camera_topic_lane_;  // Lane camera topic
     double forward_speed_;
     double max_angular_speed_;
     double forward_timeout_;
@@ -92,9 +94,12 @@ private:
     PIDController steering_pid_;
 
     // Variables for processing
-    cv::Mat img_bgr_;
-    cv::Mat img_hsv_;
-    bool image_received_;
+    cv::Mat img_bgr_front_;     // Front camera image for crosswalk detection
+    cv::Mat img_hsv_front_;     // Front camera HSV
+    cv::Mat img_bgr_lane_;      // Lane camera image for lane detection
+    cv::Mat img_hsv_lane_;      // Lane camera HSV
+    bool front_image_received_; // Front camera image received flag
+    bool lane_image_received_;  // Lane camera image received flag
     bool crossing_detected_;
     bool crossing_cleared_;
     ros::Time detection_time_;
@@ -104,7 +109,8 @@ public:
     CrossWalkServer(std::string name) : as_(nh_, name, boost::bind(&CrossWalkServer::executeCB, this, _1), false),
                                         action_name_(name),
                                         it_(nh_),
-                                        image_received_(false),
+                                        front_image_received_(false),
+                                        lane_image_received_(false),
                                         crossing_detected_(false),
                                         crossing_cleared_(false)
     {
@@ -117,12 +123,14 @@ public:
         // Publishers
         cmd_vel_pub_ = nh_.advertise<geometry_msgs::Twist>("/cmd_vel", 10);
 
-        // Subscribers
-        ROS_INFO("Subscribing to camera topic: %s", camera_topic_.c_str());
-        image_sub_ = it_.subscribe(camera_topic_, 1, &CrossWalkServer::imageCallback, this);
+        // Subscribers for both cameras
+        ROS_INFO("Subscribing to front camera topic: %s", camera_topic_front_.c_str());
+        ROS_INFO("Subscribing to lane camera topic: %s", camera_topic_lane_.c_str());
+        front_image_sub_ = it_.subscribe(camera_topic_front_, 1, &CrossWalkServer::frontImageCallback, this);
+        lane_image_sub_ = it_.subscribe(camera_topic_lane_, 1, &CrossWalkServer::laneImageCallback, this);
 
         as_.start();
-        ROS_INFO("CrossWalk Action Server with Lane Detection Started");
+        ROS_INFO("CrossWalk Action Server with Dual Camera Lane Detection Started");
     }
 
     ~CrossWalkServer()
@@ -160,7 +168,8 @@ public:
             YAML::Node config = YAML::LoadFile(cross_config_path_);
 
             // Extract crosswalk-specific parameters
-            camera_topic_ = config["cross_walking"]["camera_topic"] ? config["cross_walking"]["camera_topic"].as<std::string>() : "/camera/image_projected_compensated";
+            camera_topic_front_ = config["cross_walking"]["camera_topic_front"] ? config["cross_walking"]["camera_topic_front"].as<std::string>() : "/camera/image";
+            camera_topic_lane_ = config["cross_walking"]["camera_topic_lane"] ? config["cross_walking"]["camera_topic_lane"].as<std::string>() : "/camera/image_projected_compensated";
             forward_speed_ = config["cross_walking"]["forward_speed"] ? config["cross_walking"]["forward_speed"].as<double>() : 0.08;
             forward_timeout_ = config["cross_walking"]["forward_timeout"] ? config["cross_walking"]["forward_timeout"].as<double>() : 30.0;
 
@@ -200,7 +209,8 @@ public:
             ROS_WARN("Using default crosswalk parameters");
 
             // Set crosswalk defaults
-            camera_topic_ = "/camera/image_projected_compensated";
+            camera_topic_front_ = "/camera/image";
+            camera_topic_lane_ = "/camera/image_projected_compensated";
             forward_speed_ = 0.08;
             forward_timeout_ = 30.0;
             detection_threshold_ = 200;
@@ -334,30 +344,49 @@ public:
         }
     }
 
-    void imageCallback(const sensor_msgs::ImageConstPtr &msg)
+    void frontImageCallback(const sensor_msgs::ImageConstPtr &msg)
     {
-        if (!image_received_)
+        if (!front_image_received_)
         {
-            ROS_INFO("Received first camera image!");
+            ROS_INFO("Received first front camera image!");
         }
 
         try
         {
-            img_bgr_ = cv_bridge::toCvShare(msg, "bgr8")->image;
-            image_received_ = true;
-            cv::cvtColor(img_bgr_, img_hsv_, cv::COLOR_BGR2HSV);
+            img_bgr_front_ = cv_bridge::toCvShare(msg, "bgr8")->image;
+            front_image_received_ = true;
+            cv::cvtColor(img_bgr_front_, img_hsv_front_, cv::COLOR_BGR2HSV);
         }
         catch (cv_bridge::Exception &e)
         {
-            ROS_ERROR("Could not convert from '%s' to 'bgr8'.", msg->encoding.c_str());
+            ROS_ERROR("Could not convert front image from '%s' to 'bgr8'.", msg->encoding.c_str());
+        }
+    }
+
+    void laneImageCallback(const sensor_msgs::ImageConstPtr &msg)
+    {
+        if (!lane_image_received_)
+        {
+            ROS_INFO("Received first lane camera image!");
+        }
+
+        try
+        {
+            img_bgr_lane_ = cv_bridge::toCvShare(msg, "bgr8")->image;
+            lane_image_received_ = true;
+            cv::cvtColor(img_bgr_lane_, img_hsv_lane_, cv::COLOR_BGR2HSV);
+        }
+        catch (cv_bridge::Exception &e)
+        {
+            ROS_ERROR("Could not convert lane image from '%s' to 'bgr8'.", msg->encoding.c_str());
         }
     }
 
     int detectCrossWalk(cv::Mat &debug_img)
     {
-        if (!image_received_)
+        if (!front_image_received_)
         {
-            ROS_WARN_THROTTLE(1, "No camera image received yet!");
+            ROS_WARN_THROTTLE(1, "No front camera image received yet!");
             return 0;
         }
 
@@ -366,11 +395,11 @@ public:
 
         // Create masks for red color (using two ranges since red wraps around in HSV)
         cv::Mat red_mask1, red_mask2, red_mask;
-        cv::inRange(img_hsv_,
+        cv::inRange(img_hsv_front_,
                     cv::Scalar(hue_red_low1_, saturation_red_low_, value_red_low_),
                     cv::Scalar(hue_red_high1_, saturation_red_high_, value_red_high_),
                     red_mask1);
-        cv::inRange(img_hsv_,
+        cv::inRange(img_hsv_front_,
                     cv::Scalar(hue_red_low2_, saturation_red_low_, value_red_low_),
                     cv::Scalar(hue_red_high2_, saturation_red_high_, value_red_high_),
                     red_mask2);
@@ -386,7 +415,7 @@ public:
         {
             // Combined red and white masks
             cv::Mat white_mask;
-            cv::inRange(img_hsv_,
+            cv::inRange(img_hsv_front_,
                         cv::Scalar(hue_white_low_, saturation_white_low_, value_white_low_),
                         cv::Scalar(hue_white_high_, saturation_white_high_, value_white_high_),
                         white_mask);
@@ -397,7 +426,7 @@ public:
         cv::Mat roi_mask = final_mask(crosswalk_roi);
         int pixel_count = cv::countNonZero(roi_mask);
 
-        // Visualization
+        // Visualization on FRONT camera image
         if (!debug_img.empty())
         {
             // Draw crosswalk ROI
@@ -413,32 +442,36 @@ public:
             std::string timeout_text = "Time: " + std::to_string((int)time_elapsed) + "/" + std::to_string((int)forward_timeout_) + "s";
             cv::putText(debug_img, timeout_text, cv::Point(10, 60),
                         cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 255, 255), 2);
+
+            // Show camera source
+            cv::putText(debug_img, "FRONT CAMERA", cv::Point(10, debug_img.rows - 60),
+                        cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 0, 255), 2);
         }
 
         return pixel_count;
     }
 
-    void followLaneAndDetectCrosswalk(cv::Mat &debug_img)
+    void followLaneAndDetectCrosswalk(cv::Mat &lane_debug_img)
     {
-        if (!image_received_)
+        if (!lane_image_received_)
         {
-            ROS_WARN_THROTTLE(1, "No camera image received yet!");
+            ROS_WARN_THROTTLE(1, "No lane camera image received yet!");
             return;
         }
 
-        int height = img_bgr_.rows;
-        int width = img_bgr_.cols;
+        int height = img_bgr_lane_.rows;
+        int width = img_bgr_lane_.cols;
         int center_x = width / 2;
 
-        // Create masks for white and yellow lanes
+        // Create masks for white and yellow lanes using LANE camera image
         cv::Mat img_white_mask, img_yellow_mask;
         cv::Scalar lower_white = cv::Scalar(hue_white_l_, saturation_white_l_, value_white_l_);
         cv::Scalar upper_white = cv::Scalar(hue_white_h_, saturation_white_h_, value_white_h_);
         cv::Scalar lower_yellow = cv::Scalar(hue_yellow_l_, saturation_yellow_l_, value_yellow_l_);
         cv::Scalar upper_yellow = cv::Scalar(hue_yellow_h_, saturation_yellow_h_, value_yellow_h_);
 
-        cv::inRange(img_hsv_, lower_white, upper_white, img_white_mask);
-        cv::inRange(img_hsv_, lower_yellow, upper_yellow, img_yellow_mask);
+        cv::inRange(img_hsv_lane_, lower_white, upper_white, img_white_mask);
+        cv::inRange(img_hsv_lane_, lower_yellow, upper_yellow, img_yellow_mask);
 
         // Combine masks
         cv::Mat lane_mask = cv::Mat::zeros(height, width, CV_8UC1);
@@ -458,10 +491,11 @@ public:
         // Apply Gaussian blur
         cv::GaussianBlur(lane_mask, lane_mask, cv::Size(5, 5), 0);
 
-        // Calculate lane center
-        int numRegions = 3;
+        // Calculate lane center using multiple regions
+        int numRegions = 5;
         double total_offset = 0.0;
         int valid_regions = 0;
+        double region_weights[3] = {3.0, 2.0, 1.0}; // Higher weight for bottom regions
 
         for (int r = 0; r < numRegions; r++)
         {
@@ -469,6 +503,7 @@ public:
             int left_sum = 0, right_sum = 0;
             int left_weighted_sum = 0, right_weighted_sum = 0;
 
+            // Scan for lane pixels in this region
             for (int x = 0; x < width; x++)
             {
                 if (lane_mask.at<uchar>(y, x) > 0)
@@ -486,23 +521,46 @@ public:
                 }
             }
 
-            // Calculate lane center for this region
+            // Calculate lane center for this region if both lanes detected
             if (left_sum > 10 && right_sum > 10)
             {
                 int left_lane_x = left_weighted_sum / left_sum;
                 int right_lane_x = right_weighted_sum / right_sum;
                 int lane_center = (left_lane_x + right_lane_x) / 2;
 
+                // Calculate offset from image center, normalized to [-1, 1]
                 double offset = (lane_center - center_x) / (double)(width / 2);
-                total_offset += offset;
-                valid_regions++;
+                total_offset += offset * region_weights[r];
+                valid_regions += region_weights[r];
 
-                // Debug visualization
-                if (!debug_img.empty())
+                // Debug visualization on LANE camera image
+                if (!lane_debug_img.empty())
                 {
-                    cv::circle(debug_img, cv::Point(left_lane_x, y), 3, cv::Scalar(255, 0, 0), -1);
-                    cv::circle(debug_img, cv::Point(right_lane_x, y), 3, cv::Scalar(0, 255, 0), -1);
-                    cv::circle(debug_img, cv::Point(lane_center, y), 5, cv::Scalar(0, 0, 255), -1);
+                    cv::circle(lane_debug_img, cv::Point(left_lane_x, y), 3, cv::Scalar(255, 0, 0), -1);  // Blue for left
+                    cv::circle(lane_debug_img, cv::Point(right_lane_x, y), 3, cv::Scalar(0, 255, 0), -1); // Green for right
+                    cv::circle(lane_debug_img, cv::Point(lane_center, y), 5, cv::Scalar(0, 0, 255), -1);  // Red for center
+
+                    // Draw line from image center to lane center
+                    cv::line(lane_debug_img, cv::Point(center_x, y), cv::Point(lane_center, y), cv::Scalar(255, 255, 0), 2);
+                }
+            }
+            else if (left_sum > 10 || right_sum > 10)
+            {
+                // If only one lane detected, use it with default offset
+                int single_lane_x = (left_sum > 10) ? (left_weighted_sum / left_sum) : (right_weighted_sum / right_sum);
+
+                // Estimate lane center based on single lane
+                int estimated_center = (left_sum > 10) ? single_lane_x + 100 : single_lane_x - 100; // Rough estimate
+                double offset = (estimated_center - center_x) / (double)(width / 2);
+                total_offset += offset * region_weights[r] * 0.5; // Lower confidence
+                valid_regions += region_weights[r] * 0.5;
+
+                // Debug visualization for single lane
+                if (!lane_debug_img.empty())
+                {
+                    cv::Scalar color = (left_sum > 10) ? cv::Scalar(255, 0, 0) : cv::Scalar(0, 255, 0);
+                    cv::circle(lane_debug_img, cv::Point(single_lane_x, y), 3, color, -1);
+                    cv::circle(lane_debug_img, cv::Point(estimated_center, y), 5, cv::Scalar(0, 255, 255), -1); // Cyan for estimated
                 }
             }
         }
@@ -519,6 +577,13 @@ public:
                 angular_z = max_angular_speed_;
             if (angular_z < -max_angular_speed_)
                 angular_z = -max_angular_speed_;
+
+            ROS_INFO_THROTTLE(0.5, "Lane offset: %.3f, Angular: %.3f", avg_offset, angular_z);
+        }
+        else
+        {
+            ROS_WARN_THROTTLE(1.0, "No lane detected! Moving straight.");
+            angular_z = 0.0;
         }
 
         // Calculate linear velocity (reduce when turning)
@@ -530,15 +595,27 @@ public:
         cmd.angular.z = angular_z;
         cmd_vel_pub_.publish(cmd);
 
-        // Debug info
-        if (!debug_img.empty())
+        // Debug info on LANE camera image
+        if (!lane_debug_img.empty())
         {
-            std::string lane_text = "Lane Following: linear=" + std::to_string(linear_x) + ", angular=" + std::to_string(angular_z);
-            cv::putText(debug_img, lane_text, cv::Point(10, 90),
-                        cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 255, 0), 2);
-        }
+            // Draw lane ROI
+            cv::line(lane_debug_img, cv::Point(0, roi_top), cv::Point(width, roi_top), cv::Scalar(255, 255, 255), 2);
 
-        ROS_INFO_THROTTLE(0.5, "Lane following: linear=%.2f, angular=%.2f", linear_x, angular_z);
+            // Show lane following info
+            std::string lane_text = "Lane: L=" + std::to_string(linear_x).substr(0, 4) +
+                                    " A=" + std::to_string(angular_z).substr(0, 4);
+            cv::putText(lane_debug_img, lane_text, cv::Point(10, 30),
+                        cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(255, 255, 0), 2);
+
+            // Show valid regions count
+            std::string regions_text = "Valid regions: " + std::to_string(valid_regions);
+            cv::putText(lane_debug_img, regions_text, cv::Point(10, 60),
+                        cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(255, 255, 0), 2);
+
+            // Show camera source
+            cv::putText(lane_debug_img, "LANE CAMERA", cv::Point(10, lane_debug_img.rows - 30),
+                        cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 0, 255), 2);
+        }
     }
 
     void stopRobot()
@@ -561,16 +638,20 @@ public:
 
         ROS_INFO("CrossWalk action with lane following started");
 
-        // Wait for first image
-        while (!image_received_ && ros::ok())
+        // Wait for both camera images
+        while ((!front_image_received_ || !lane_image_received_) && ros::ok())
         {
             if ((ros::Time::now() - start_time_).toSec() > 5.0)
             {
-                ROS_ERROR("No camera image received after 5 seconds. Aborting mission.");
+                ROS_ERROR("Camera images not received after 5 seconds. Front: %s, Lane: %s",
+                          front_image_received_ ? "OK" : "NO",
+                          lane_image_received_ ? "OK" : "NO");
                 as_.setAborted();
                 return;
             }
-            ROS_INFO_THROTTLE(1, "Waiting for camera image...");
+            ROS_INFO_THROTTLE(1, "Waiting for camera images... Front: %s, Lane: %s",
+                              front_image_received_ ? "OK" : "waiting",
+                              lane_image_received_ ? "OK" : "waiting");
             ros::spinOnce();
             r.sleep();
         }
@@ -598,15 +679,20 @@ public:
                 break;
             }
 
-            // Create debug image
-            cv::Mat debug_img;
-            if (image_received_)
+            // Create debug images for both cameras
+            cv::Mat front_debug_img, lane_debug_img;
+            int pixel_count = 0;
+
+            if (front_image_received_)
             {
-                debug_img = img_bgr_.clone();
+                front_debug_img = img_bgr_front_.clone();
+                pixel_count = detectCrossWalk(front_debug_img);
             }
 
-            // Process image to detect crossing
-            int pixel_count = detectCrossWalk(debug_img);
+            if (lane_image_received_)
+            {
+                lane_debug_img = img_bgr_lane_.clone();
+            }
 
             // State machine
             switch (current_state)
@@ -623,7 +709,10 @@ public:
                 }
 
                 // Follow lane while looking for crosswalk
-                followLaneAndDetectCrosswalk(debug_img);
+                if (lane_image_received_)
+                {
+                    followLaneAndDetectCrosswalk(lane_debug_img);
+                }
 
                 // Check if crossing detected
                 if (pixel_count >= detection_threshold_)
@@ -653,7 +742,10 @@ public:
             case MOVING_AFTER:
             {
                 // Continue lane following for 1 second after crossing cleared
-                followLaneAndDetectCrosswalk(debug_img);
+                if (lane_image_received_)
+                {
+                    followLaneAndDetectCrosswalk(lane_debug_img);
+                }
 
                 if ((ros::Time::now() - cleared_time).toSec() >= 1.0)
                 {
@@ -668,12 +760,44 @@ public:
                 break;
             }
 
-            // Show debug visualization
-            if (!debug_img.empty())
+            // Show debug visualization for both cameras
+            if (!front_debug_img.empty())
             {
-                cv::imshow("CrossWalk with Lane Detection", debug_img);
-                cv::waitKey(1);
+                // Add state information to front debug image
+                std::string state_text = "State: ";
+                switch (current_state)
+                {
+                case APPROACHING:
+                    state_text += "APPROACHING";
+                    break;
+                case WAITING:
+                    state_text += "WAITING";
+                    break;
+                case MOVING_AFTER:
+                    state_text += "MOVING_AFTER";
+                    break;
+                case COMPLETED:
+                    state_text += "COMPLETED";
+                    break;
+                }
+                int height = front_debug_img.rows;
+                cv::putText(front_debug_img, state_text, cv::Point(10, height - 30),
+                            cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 255, 255), 2);
+
+                cv::imshow("CrossWalk Detection (Front Camera)", front_debug_img);
             }
+
+            if (!lane_debug_img.empty())
+            {
+                cv::imshow("Lane Following (Lane Camera)", lane_debug_img);
+            }
+
+            if (front_debug_img.empty() && lane_debug_img.empty())
+            {
+                ROS_WARN_THROTTLE(2.0, "No debug images available - no camera data received");
+            }
+
+            cv::waitKey(1);
 
             // Publish feedback
             feedback_.time_elapsed = (ros::Time::now() - start_time_).toSec();

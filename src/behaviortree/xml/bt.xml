@@ -34,19 +34,20 @@
                 <LaneDetect mode="just-turn-left" duration="10.0" sign="left"/>
             </Sequence> -->
 
-            <!-- <Sequence name="Mission 4: Level Crossing">
-                <LaneDetect mode="center" duration="300.0" sign="stop"/>
-                <CrossWalk/>
-                <LaneDetect mode="center" duration="300.0" sign="tunnel"/>
-            </Sequence> -->
+            <Sequence name="Mission 4: Level Crossing">
+                <!-- <LaneDetect mode="center" duration="300.0" sign="stop"/> -->
+                <!-- <CrossWalk/> -->
+                <LaneDetect mode="center" duration="1.0" sign="tunnel"/>
+                <LaneDetect mode="just-turn-left" duration="60.0" sign="left" speed="0.12"/>  
+            </Sequence>
 
-            <Sequence name="Mission 5: Tunnel">
-                <!-- <Move mode="forward" until="right" distance="1.0"/> -->
-                <!-- <Move mode="forward" until="timer" distance="3"/> -->
-                <!-- <Align by="right"/> -->
-                <!-- <Rotate direction="counterclockwise" angle="90.0"/> -->
-                <!-- <Move mode="forward" until="back" distance="0.25"/> -->
-                <!-- <Rotate direction="clockwise" angle="90.0"/>  -->
+            <!-- <Sequence name="Mission 5: Tunnel">
+                <Move mode="forward" until="right" distance="1.0"/>
+                <Move mode="forward" until="timer" distance="3"/>
+                <Align by="right"/>
+                <Rotate direction="counterclockwise" angle="90.0"/>
+                <Move mode="forward" until="back" distance="0.25"/>
+                <Rotate direction="clockwise" angle="90.0"/> 
                 <TunnelNav mode="offline"/>
                 <Rotate direction="align" angle="90.0"/> 
                 <Align by="right"/>
@@ -56,7 +57,7 @@
 
             <Sequence name="Mission 6: Finish">
                 <LaneDetect mode="center" duration="5.0" sign="" speed="0.12"/>
-            </Sequence>
+            </Sequence> -->
         </Sequence>
     </BehaviorTree>
 </root>

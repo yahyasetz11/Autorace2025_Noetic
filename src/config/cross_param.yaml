@@ -1,14 +1,13 @@
 cross_walking:
   # Camera topic
-  camera_topic: "/camera/image"
+  camera_topic_front: "/camera/image" # Front camera for crosswalk detection
+  camera_topic_lane: "/camera/image_projected_compensated" # Down camera for lane detection
 
   # Movement parameters
   forward_speed: 0.08 # Linear speed for forward movement (m/s)
 
   detection_method: "red_only"
   # detection_method: "combined"
-
-  forward_timeout: 30.0 # Maximum time to move forward looking for crossing (seconds)
 
   # Detection thresholds
   detection_threshold: 900 # Pixel count threshold to consider crossing detected

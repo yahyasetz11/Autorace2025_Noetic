@@ -22,53 +22,53 @@
 #     low: 169
 #     high: 255
 
-white_lane:
-  hue:
-    low: 78
-    high: 179
-  saturation:
-    low: 0
-    high: 66
-  value:
-    low: 191
-    high: 255
-
-# HSV thresholds for yellow lane
-yellow_lane:
-  hue:
-    low: 10
-    high: 78
-  saturation:
-    low: 37
-    high: 255
-  value:
-    low: 169
-    high: 255
-
-# FOR GAZEBO
-# HSV thresholds for white lane
 # white_lane:
 #   hue:
-#     low: 0
+#     low: 78
 #     high: 179
 #   saturation:
 #     low: 0
-#     high: 74
+#     high: 66
 #   value:
-#     low: 242
+#     low: 191
 #     high: 255
 
 # # HSV thresholds for yellow lane
 # yellow_lane:
 #   hue:
 #     low: 10
-#     high: 64
+#     high: 78
 #   saturation:
-#     low: 0
+#     low: 37
 #     high: 255
 #   value:
-#     low: 100
+#     low: 169
 #     high: 255
+
+# FOR GAZEBO
+# HSV thresholds for white lane
+white_lane:
+  hue:
+    low: 0
+    high: 179
+  saturation:
+    low: 0
+    high: 74
+  value:
+    low: 242
+    high: 255
+
+# HSV thresholds for yellow lane
+yellow_lane:
+  hue:
+    low: 10
+    high: 64
+  saturation:
+    low: 0
+    high: 255
+  value:
+    low: 100
+    high: 255
 
 # ROI settings
 roi:
