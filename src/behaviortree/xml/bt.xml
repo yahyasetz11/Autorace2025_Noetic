@@ -1,27 +1,16 @@
 <root main_tree_to_execute="LaneDetectBT">
     <BehaviorTree ID="LaneDetectBT">
         <Sequence name="BehaviorTree">
-            <!-- <Sequence name="TRIAL">
-                <Move mode="forward" until="timer" distance="2.0"/>
-                <Rotate direction="counterclockwise" angle="90.0"/>
-                <Move mode="forward" until="timer" distance="2.0"/>
-                <Rotate direction="counterclockwise" angle="90.0"/>
-                <Move mode="forward" until="timer" distance="2.0"/>
-                <Rotate direction="counterclockwise" angle="90.0"/>
-                <Move mode="forward" until="timer" distance="2.0"/>
-                <Rotate direction="counterclockwise" angle="90.0"/>
-                <Rotate direction="align" angle="0.0"/>
-            </Sequence> -->
             <!-- <Sequence name="Mission 0: Traffic Light">
                 <TrafficLight timeout="60.0"/>
             </Sequence> -->
-            <!-- <Sequence name="Mission 1: Intersection">
-                <LaneDetect mode="center" sign="" duration="5.0" speed="0.12"/> 
+            <Sequence name="Mission 1: Intersection">
+                <LaneDetect mode="center" sign="" duration="5.0" speed="0.15"/> 
                 <LaneDetect mode="intersection" duration="300.0" sign="" speed="0.09"/>   
             </Sequence>
 
             <Sequence name="Mission 2: Construction">
-                <LaneDetect mode="center" sign="" duration="5.0" speed="0.12"/> 
+                <LaneDetect mode="center" sign="" duration="5.0" speed="0.15"/> 
                 <LaneDetect mode="just-turn-left" duration="60.0" sign="right" speed="0.11"/>  
                 <Construction mode="ramp_2"/> 
             </Sequence>
@@ -32,32 +21,29 @@
                 <LaneDetect mode="just-turn-left" duration="60.0" sign="left" speed="0.12"/>    
                 <Parking mode="dynamic"/>
                 <LaneDetect mode="just-turn-left" duration="10.0" sign="left"/>
-            </Sequence> -->
-
-            <Sequence name="Mission 4: Level Crossing">
-                <!-- <LaneDetect mode="center" duration="300.0" sign="stop"/> -->
-                <!-- <CrossWalk/> -->
-                <LaneDetect mode="center" duration="1.0" sign="tunnel"/>
-                <LaneDetect mode="just-turn-left" duration="60.0" sign="left" speed="0.12"/>  
             </Sequence>
 
-            <!-- <Sequence name="Mission 5: Tunnel">
-                <Move mode="forward" until="right" distance="1.0"/>
-                <Move mode="forward" until="timer" distance="3"/>
-                <Align by="right"/>
-                <Rotate direction="counterclockwise" angle="90.0"/>
-                <Move mode="forward" until="back" distance="0.25"/>
-                <Rotate direction="clockwise" angle="90.0"/> 
+            <Sequence name="Mission 4: Level Crossing">
+                <LaneDetect mode="cross_level" duration="300.0" sign="" speed="0.08"/>
+                <LaneDetect mode="center" duration="3.0" sign=""/>
+                <LaneDetect mode="just-turn-right" duration="60.0" sign="left" speed="0.10"/>  
+                <LaneDetect mode="just-turn-left" duration="60.0" sign="right" speed="0.1"/>  
+            </Sequence>
+
+            <Sequence name="Mission 5: Tunnel">
+                <LaneDetect mode="center" duration="2.5" sign="" speed="0.12"/>
+                <Move mode="forward" until="right" distance="0.3"/>
+                <Move mode="forward" until="timer" distance="2"/>
                 <TunnelNav mode="offline"/>
-                <Rotate direction="align" angle="90.0"/> 
+                <!-- <Rotate direction="align" angle="87.0"/>  -->
                 <Align by="right"/>
-                <Rotate direction="clockwise" angle="5.0"/> 
-                <Move mode="forward" until="timer" distance="5.0"/>
+                <Move mode="forward" until="left" distance="0.25"/>
+                <Move mode="forward" until="timer" distance="1.0"/>
             </Sequence>
 
             <Sequence name="Mission 6: Finish">
-                <LaneDetect mode="center" duration="5.0" sign="" speed="0.12"/>
-            </Sequence> -->
+                <LaneDetect mode="center" duration="5.0" sign="" speed="0.1"/>
+            </Sequence>
         </Sequence>
     </BehaviorTree>
 </root>

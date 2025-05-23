@@ -1378,7 +1378,7 @@ public:
             {
                 feedback_.current_phase = "Ramp: First right pivot turn 120 degrees";
 
-                double angle_rad = -2 * ramp_rotation_angle_;
+                double angle_rad = -2 * ramp_rotation_angle_ + 5;
 
                 // For a 90 degree turn with 0.5m radius, transitioning to the RAMP_2_MOVE_50CM phase next
                 rotateWithRadiusIMU(angle_rad, 0.02, RAMP_2_MOVE_50CM_2);
@@ -1408,7 +1408,7 @@ public:
                 feedback_.current_phase = "Ramp2: Turning Left without radius";
 
                 // For a 90 degree turn with 0.5m radius, transitioning to the RAMP_2_MOVE_50CM phase next
-                rotateWithRadiusIMU(90.0, 0.3, RAMP_2_COMPLETED);
+                rotateWithRadiusIMU(90.0, 0.31, RAMP_2_COMPLETED);
 
                 break;
             }

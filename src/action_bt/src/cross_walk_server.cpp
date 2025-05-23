@@ -62,6 +62,7 @@ private:
     int detection_threshold_;
     int cleared_threshold_;
     std::string detection_method_;
+    bool use_lane_following_; // Toggle between lane following and simple forward movement
 
     // Configuration file paths
     std::string cross_config_path_;
@@ -123,14 +124,23 @@ public:
         // Publishers
         cmd_vel_pub_ = nh_.advertise<geometry_msgs::Twist>("/cmd_vel", 10);
 
-        // Subscribers for both cameras
+        // Subscribers for cameras (conditional based on mode)
         ROS_INFO("Subscribing to front camera topic: %s", camera_topic_front_.c_str());
-        ROS_INFO("Subscribing to lane camera topic: %s", camera_topic_lane_.c_str());
         front_image_sub_ = it_.subscribe(camera_topic_front_, 1, &CrossWalkServer::frontImageCallback, this);
-        lane_image_sub_ = it_.subscribe(camera_topic_lane_, 1, &CrossWalkServer::laneImageCallback, this);
+
+        if (use_lane_following_)
+        {
+            ROS_INFO("Lane following ENABLED - subscribing to lane camera topic: %s", camera_topic_lane_.c_str());
+            lane_image_sub_ = it_.subscribe(camera_topic_lane_, 1, &CrossWalkServer::laneImageCallback, this);
+        }
+        else
+        {
+            ROS_INFO("Lane following DISABLED - using simple forward movement");
+        }
 
         as_.start();
-        ROS_INFO("CrossWalk Action Server with Dual Camera Lane Detection Started");
+        ROS_INFO("CrossWalk Action Server Started - Mode: %s",
+                 use_lane_following_ ? "Lane Following" : "Simple Forward Movement");
     }
 
     ~CrossWalkServer()
@@ -173,6 +183,9 @@ public:
             forward_speed_ = config["cross_walking"]["forward_speed"] ? config["cross_walking"]["forward_speed"].as<double>() : 0.08;
             forward_timeout_ = config["cross_walking"]["forward_timeout"] ? config["cross_walking"]["forward_timeout"].as<double>() : 30.0;
 
+            // Mode selection
+            use_lane_following_ = config["cross_walking"]["use_lane_following"] ? config["cross_walking"]["use_lane_following"].as<bool>() : true;
+
             // Crosswalk detection parameters
             detection_threshold_ = config["cross_walking"]["detection_threshold"] ? config["cross_walking"]["detection_threshold"].as<int>() : 200;
             cleared_threshold_ = config["cross_walking"]["cleared_threshold"] ? config["cross_walking"]["cleared_threshold"].as<int>() : 50;
@@ -202,6 +215,7 @@ public:
             value_white_high_ = config["cross_walking"]["value_white_high"] ? config["cross_walking"]["value_white_high"].as<int>() : 255;
 
             ROS_INFO("Loaded crosswalk parameters from %s", cross_config_path_.c_str());
+            ROS_INFO("  Mode: %s", use_lane_following_ ? "Lane Following" : "Simple Forward Movement");
         }
         catch (const YAML::Exception &e)
         {
@@ -213,6 +227,7 @@ public:
             camera_topic_lane_ = "/camera/image_projected_compensated";
             forward_speed_ = 0.08;
             forward_timeout_ = 30.0;
+            use_lane_following_ = true; // Default to lane following
             detection_threshold_ = 200;
             cleared_threshold_ = 50;
             detection_method_ = "combined";
@@ -451,6 +466,14 @@ public:
         return pixel_count;
     }
 
+    void moveForward()
+    {
+        geometry_msgs::Twist cmd;
+        cmd.linear.x = forward_speed_;
+        cmd.angular.z = 0.0;
+        cmd_vel_pub_.publish(cmd);
+    }
+
     void followLaneAndDetectCrosswalk(cv::Mat &lane_debug_img)
     {
         if (!lane_image_received_)
@@ -492,7 +515,7 @@ public:
         cv::GaussianBlur(lane_mask, lane_mask, cv::Size(5, 5), 0);
 
         // Calculate lane center using multiple regions
-        int numRegions = 5;
+        int numRegions = 3;
         double total_offset = 0.0;
         int valid_regions = 0;
         double region_weights[3] = {3.0, 2.0, 1.0}; // Higher weight for bottom regions
@@ -638,20 +661,39 @@ public:
 
         ROS_INFO("CrossWalk action with lane following started");
 
-        // Wait for both camera images
-        while ((!front_image_received_ || !lane_image_received_) && ros::ok())
+        // Wait for required camera images based on mode
+        bool required_cameras_ready = false;
+        while (!required_cameras_ready && ros::ok())
         {
-            if ((ros::Time::now() - start_time_).toSec() > 5.0)
+            if (use_lane_following_)
             {
-                ROS_ERROR("Camera images not received after 5 seconds. Front: %s, Lane: %s",
-                          front_image_received_ ? "OK" : "NO",
-                          lane_image_received_ ? "OK" : "NO");
-                as_.setAborted();
-                return;
+                // Need both cameras for lane following mode
+                required_cameras_ready = front_image_received_ && lane_image_received_;
+                if ((ros::Time::now() - start_time_).toSec() > 5.0)
+                {
+                    ROS_ERROR("Camera images not received after 5 seconds. Front: %s, Lane: %s",
+                              front_image_received_ ? "OK" : "NO",
+                              lane_image_received_ ? "OK" : "NO");
+                    as_.setAborted();
+                    return;
+                }
+                ROS_INFO_THROTTLE(1, "Waiting for camera images... Front: %s, Lane: %s",
+                                  front_image_received_ ? "OK" : "waiting",
+                                  lane_image_received_ ? "OK" : "waiting");
             }
-            ROS_INFO_THROTTLE(1, "Waiting for camera images... Front: %s, Lane: %s",
-                              front_image_received_ ? "OK" : "waiting",
-                              lane_image_received_ ? "OK" : "waiting");
+            else
+            {
+                // Only need front camera for simple forward mode
+                required_cameras_ready = front_image_received_;
+                if ((ros::Time::now() - start_time_).toSec() > 5.0)
+                {
+                    ROS_ERROR("Front camera not received after 5 seconds!");
+                    as_.setAborted();
+                    return;
+                }
+                ROS_INFO_THROTTLE(1, "Waiting for front camera... Front: %s",
+                                  front_image_received_ ? "OK" : "waiting");
+            }
             ros::spinOnce();
             r.sleep();
         }
@@ -679,7 +721,7 @@ public:
                 break;
             }
 
-            // Create debug images for both cameras
+            // Create debug images based on mode
             cv::Mat front_debug_img, lane_debug_img;
             int pixel_count = 0;
 
@@ -689,7 +731,7 @@ public:
                 pixel_count = detectCrossWalk(front_debug_img);
             }
 
-            if (lane_image_received_)
+            if (use_lane_following_ && lane_image_received_)
             {
                 lane_debug_img = img_bgr_lane_.clone();
             }
@@ -708,10 +750,24 @@ public:
                     break;
                 }
 
-                // Follow lane while looking for crosswalk
-                if (lane_image_received_)
+                // Move forward based on selected mode
+                if (use_lane_following_)
                 {
-                    followLaneAndDetectCrosswalk(lane_debug_img);
+                    // Use lane following
+                    if (lane_image_received_)
+                    {
+                        followLaneAndDetectCrosswalk(lane_debug_img);
+                    }
+                    else
+                    {
+                        ROS_WARN_THROTTLE(1.0, "Lane following enabled but no lane camera data - stopping");
+                        stopRobot();
+                    }
+                }
+                else
+                {
+                    // Use simple forward movement
+                    moveForward();
                 }
 
                 // Check if crossing detected
@@ -741,10 +797,24 @@ public:
 
             case MOVING_AFTER:
             {
-                // Continue lane following for 1 second after crossing cleared
-                if (lane_image_received_)
+                // Continue movement after crossing cleared
+                if (use_lane_following_)
                 {
-                    followLaneAndDetectCrosswalk(lane_debug_img);
+                    // Use lane following
+                    if (lane_image_received_)
+                    {
+                        followLaneAndDetectCrosswalk(lane_debug_img);
+                    }
+                    else
+                    {
+                        ROS_WARN_THROTTLE(1.0, "Lane following enabled but no lane camera data - stopping");
+                        stopRobot();
+                    }
+                }
+                else
+                {
+                    // Use simple forward movement
+                    moveForward();
                 }
 
                 if ((ros::Time::now() - cleared_time).toSec() >= 1.0)
@@ -760,10 +830,10 @@ public:
                 break;
             }
 
-            // Show debug visualization for both cameras
+            // Show debug visualization based on mode
             if (!front_debug_img.empty())
             {
-                // Add state information to front debug image
+                // Add state and mode information to front debug image
                 std::string state_text = "State: ";
                 switch (current_state)
                 {
@@ -781,20 +851,26 @@ public:
                     break;
                 }
                 int height = front_debug_img.rows;
-                cv::putText(front_debug_img, state_text, cv::Point(10, height - 30),
+                cv::putText(front_debug_img, state_text, cv::Point(10, height - 60),
                             cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 255, 255), 2);
+
+                // Show movement mode
+                std::string mode_text = "Mode: " + std::string(use_lane_following_ ? "Lane Following" : "Simple Forward");
+                cv::putText(front_debug_img, mode_text, cv::Point(10, height - 30),
+                            cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 255, 0), 2);
 
                 cv::imshow("CrossWalk Detection (Front Camera)", front_debug_img);
             }
 
-            if (!lane_debug_img.empty())
+            // Only show lane window if lane following is enabled
+            if (use_lane_following_ && !lane_debug_img.empty())
             {
                 cv::imshow("Lane Following (Lane Camera)", lane_debug_img);
             }
 
-            if (front_debug_img.empty() && lane_debug_img.empty())
+            if (front_debug_img.empty())
             {
-                ROS_WARN_THROTTLE(2.0, "No debug images available - no camera data received");
+                ROS_WARN_THROTTLE(2.0, "No front camera data received");
             }
 
             cv::waitKey(1);

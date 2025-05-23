@@ -7,6 +7,7 @@
 #include <sensor_msgs/Image.h>
 #include <geometry_msgs/Twist.h>
 #include <std_msgs/UInt8.h>
+#include <std_msgs/Int32.h>
 #include <cmath>                    // For math functions
 #include <nav_msgs/Odometry.h>      // For odometry data
 #include <tf/transform_datatypes.h> // For quaternion to Euler conversion
@@ -103,6 +104,13 @@ private:
     std::string speed_config_path_;
     std::string color_config_path_;
 
+    // CrossWalk parameter
+    ros::Subscriber crosswalk_pixel_sub_;
+    int current_crosswalk_pixels_;
+    bool crosswalk_pixel_received_;
+    int crosswalk_threshold_;
+    bool crosswalk_stopped_;
+
     // Intersection enhancement variables
     bool use_sign_finding_;             // Toggle for sign-finding sequence
     bool use_x_sign_;                   // Toggle for X sign behavior
@@ -141,6 +149,10 @@ public:
                                          intersection_yaw_recorded_(false),
                                          turn_left_permanent_(false),
                                          turn_right_permanent_(false),
+                                         current_crosswalk_pixels_(0),
+                                         crosswalk_pixel_received_(false),
+                                         crosswalk_threshold_(900),
+                                         crosswalk_stopped_(false),
                                          yaw_tolerance_(10.0) // 10 degrees tolerance
     {
         recorded_left_lane_x_.resize(5, -1);
@@ -155,6 +167,7 @@ public:
         // Load configuration parameters
         loadSpeedParameters();
         loadColorParameters();
+        loadCrosswalkParameters();
 
         // Initialize PID controller
         pid_param(&steering_pid_, pid_kp_, pid_ki_, pid_kd_);
@@ -172,6 +185,9 @@ public:
 
         // Subscribe to odometry for yaw tracking
         odom_sub_ = nh_.subscribe("/odom", 10, &LaneDetectServer::odomCallback, this);
+
+        // Subscribe to crosswalk value
+        crosswalk_pixel_sub_ = nh_.subscribe("/crosswalk/pixel_count", 10, &LaneDetectServer::crosswalkPixelCallback, this);
 
         as_.start();
         ROS_INFO("Lane Detection Action Server Started");
@@ -362,6 +378,26 @@ public:
         }
     }
 
+    void loadCrosswalkParameters()
+    {
+        try
+        {
+            std::string cross_config_path = ros::package::getPath("action_bt") + "/../config/cross_param.yaml";
+            YAML::Node config = YAML::LoadFile(cross_config_path);
+
+            // Load detection threshold for cross_level mode
+            crosswalk_threshold_ = config["cross_walking"]["detection_threshold"] ? config["cross_walking"]["detection_threshold"].as<int>() : 900;
+
+            ROS_INFO("Loaded crosswalk threshold from cross_param.yaml: %d", crosswalk_threshold_);
+        }
+        catch (const YAML::Exception &e)
+        {
+            ROS_ERROR("Error loading crosswalk configuration: %s", e.what());
+            ROS_WARN("Using default crosswalk threshold: %d", crosswalk_threshold_);
+            crosswalk_threshold_ = 900; // Default fallback
+        }
+    }
+
     void imageCallback(const sensor_msgs::ImageConstPtr &msg)
     {
         if (!image_received_)
@@ -432,6 +468,19 @@ public:
 
             ROS_INFO_THROTTLE(1.0, "Current yaw: %.2f, Initial: %.2f, Diff: %.2f degrees",
                               current_yaw_ * 180.0 / M_PI, initial_yaw_ * 180.0 / M_PI, turn_degrees);
+        }
+    }
+
+    void crosswalkPixelCallback(const std_msgs::Int32::ConstPtr &msg)
+    {
+        current_crosswalk_pixels_ = msg->data;
+        crosswalk_pixel_received_ = true;
+
+        // Log crosswalk detection info when in cross_level mode
+        if (current_mode_ == "cross_level")
+        {
+            ROS_INFO_THROTTLE(0.5, "Cross level mode: %d/%d pixels detected",
+                              current_crosswalk_pixels_, crosswalk_threshold_);
         }
     }
 
@@ -519,7 +568,7 @@ public:
         }
         else if (target_sign_ == "cross")
         {
-            mission = "stop";
+            mission = "level_crossing";
         }
         else if (target_sign_ == "parking")
         {
@@ -791,6 +840,19 @@ public:
         std::string effective_mode = current_mode_;
         std::string lane_follow_mode = "center"; // Default lane following mode
 
+        if (current_mode_ == "cross_level" && crosswalk_stopped_)
+        {
+            // Robot should be stopped at crosswalk
+            geometry_msgs::Twist cmd;
+            cmd.linear.x = 0.0;
+            cmd.angular.z = 0.0;
+            cmd_vel_pub_.publish(cmd);
+
+            ROS_INFO_THROTTLE(1.0, "Robot stopped at crosswalk: %d/%d pixels",
+                              current_crosswalk_pixels_, crosswalk_threshold_);
+            return; // Skip normal movement logic
+        }
+
         // For intersection mode, determine the driving behavior
         if (current_mode_ == "intersection")
         {
@@ -817,6 +879,10 @@ public:
                 // Otherwise follow center lane
                 effective_mode = "center";
             }
+        }
+        if (current_mode_ == "cross_level")
+        {
+            effective_mode == "cross_level";
         }
 
         // For turn modes, determine which lane to follow based on sign parameter
@@ -957,7 +1023,7 @@ public:
 
                 if (!region_has_left[r])
                 {
-                    region_centers[r] = 230;
+                    region_centers[r] = 380;
                 }
                 else if (!region_has_right[r])
                 {
@@ -969,6 +1035,38 @@ public:
                 ROS_INFO("Left %d = %d ", r, left_lane_x);
                 ROS_INFO("Right %d = %d ", r, right_lane_x);
             }
+
+            else if (effective_mode == "cross_level")
+            {
+                // Cross level mode should follow center lane like center mode
+                if (region_has_left[r] && region_has_right[r])
+                {
+                    recorded_left_lane_x_[r] = left_lane_x - right_lane_x;
+                    recorded_right_lane_x_[r] = right_lane_x - left_lane_x;
+                    region_centers[r] = (left_lane_x + right_lane_x) / 2;
+
+                    // Store the lane width for future calculations
+                    if (r == 0)
+                    { // Only store from bottom region
+                        x_previous_ = (right_lane_x - left_lane_x) / 2;
+                    }
+                }
+
+                if (!region_has_left[r])
+                {
+                    region_centers[r] = 380;
+                }
+                else if (!region_has_right[r])
+                {
+                    // If right lane detected and we have previous offset,
+                    // estimate where left lane should be
+                    region_centers[r] = 600;
+                }
+
+                ROS_INFO("Cross Level - Left %d = %d ", r, left_lane_x);
+                ROS_INFO("Cross Level - Right %d = %d ", r, right_lane_x);
+            }
+
             else if (effective_mode == "left" ||
                      (is_turn_mode_ && lane_follow_mode == "left"))
             {
@@ -1009,14 +1107,14 @@ public:
                     }
                     else if (region_has_right[r] && recorded_right_lane_x_[r] > 0)
                     {
-                        region_centers[r] = 230;
+                        region_centers[r] = 380;
                     }
                     else
                     {
                         // If right lane detected and we have previous offset,
                         // estimate where left lane should be
 
-                        region_centers[r] = 230;
+                        region_centers[r] = 380;
                     }
                 }
             }
@@ -1056,17 +1154,17 @@ public:
                     // Left mode follows left lane with offset
                     if (region_has_right[r])
                     {
-                        region_centers[r] = right_lane_x - x_previous_ + 75;
+                        region_centers[r] = right_lane_x - x_previous_ + 60;
                     }
                     else if (region_has_left[r] && recorded_left_lane_x_[r] < 0)
                     {
                         // If right lane detected and we have previous offset,
                         // estimate where left lane should be
-                        region_centers[r] = 700;
+                        region_centers[r] = 600;
                     }
                     else
                     {
-                        region_centers[r] = 700;
+                        region_centers[r] = 600;
                     }
                 }
             }
@@ -1348,6 +1446,10 @@ public:
             }
         }
 
+        if (current_mode_ == "cross_level")
+        {
+        }
+
         // Main execution loop
         while (ros::ok())
         {
@@ -1383,6 +1485,28 @@ public:
                 if (lane_condition)
                 {
                     ROS_INFO("Left/Right mode: Detected both lanes (flag=%d)", intersection_flag_);
+                }
+            }
+
+            bool cross_level_condition = false;
+            if (current_mode_ == "cross_level")
+            {
+                if (crosswalk_pixel_received_)
+                {
+                    if (current_crosswalk_pixels_ >= crosswalk_threshold_ && !crosswalk_stopped_)
+                    {
+                        // Crosswalk detected - stop the robot
+                        crosswalk_stopped_ = true;
+                        ROS_INFO("Crosswalk detected! Stopping robot: %d >= %d pixels",
+                                 current_crosswalk_pixels_, crosswalk_threshold_);
+                    }
+                    else if (current_crosswalk_pixels_ < crosswalk_threshold_ && crosswalk_stopped_)
+                    {
+                        // Crosswalk cleared after being stopped - success!
+                        cross_level_condition = true;
+                        ROS_INFO("Crosswalk cleared! Condition met: %d < %d pixels",
+                                 current_crosswalk_pixels_, crosswalk_threshold_);
+                    }
                 }
             }
 
@@ -1508,6 +1632,19 @@ public:
                         intersection_yaw_recorded_ = false;
                         intersection_initial_yaw_ = 0.0;
                     }
+
+                    success = true;
+                    break;
+                }
+            }
+            else if (current_mode_ == "cross_level")
+            {
+                if (time_condition || cross_level_condition)
+                {
+                    if (time_condition)
+                        ROS_INFO("Duration completed: %.2f seconds", duration);
+                    if (cross_level_condition)
+                        ROS_INFO("Intersection completed successfully with detecting cross level");
 
                     success = true;
                     break;
@@ -1691,6 +1828,8 @@ int main(int argc, char **argv)
 {
     ros::init(argc, argv, "lane_detect_server");
     LaneDetectServer laneDetectServer("lane_detect");
-    ros::spin();
+    ros::MultiThreadedSpinner spinner(4); // atau 2, tergantung CPU
+    spinner.spin();
+    // ros::spin();
     return 0;
 }

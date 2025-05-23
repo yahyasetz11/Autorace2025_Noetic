@@ -179,6 +179,10 @@ public:
                         min_distance = std::min(min_distance, static_cast<double>(latest_scan_.ranges[i]));
                         any_valid_reading = true;
                     }
+                    else if (latest_scan_.ranges[i] <= 0.01)
+                    {
+                        latest_scan_.ranges[i] = 99;
+                    }
                 }
             }
         }
@@ -229,6 +233,7 @@ public:
         cmd.linear.x = linear_vel;
         cmd.angular.z = 0.0;
         cmd_vel_pub_.publish(cmd);
+        ROS_INFO_THROTTLE(0.5, "Publishing cmd_vel: linear.x = %.4f", linear_vel);
     }
 
     void executeCB(const msg_file::MoveGoalConstPtr &goal)
@@ -261,6 +266,9 @@ public:
 
         // Determine movement direction
         double move_speed = (mode_ == "forward") ? linear_speed_ : -linear_speed_;
+
+        // Add this debug line after: double move_speed = (mode_ == "forward") ? linear_speed_ : -linear_speed_;
+        ROS_INFO("Timer mode: move_speed = %.4f, linear_speed_ = %.4f", move_speed, linear_speed_);
 
         ROS_INFO("Move Server: Mode=%s, Until=%s, Distance/Time=%.2f",
                  mode_.c_str(), until_.c_str(), distance_threshold_);
@@ -337,6 +345,10 @@ public:
                     ROS_WARN_THROTTLE(1, "Unable to get valid distance data");
                     r.sleep();
                     continue;
+                }
+                else if (current_distance <= 0.01)
+                {
+                    current_distance = 99;
                 }
 
                 // Determine success condition based on mode and until direction

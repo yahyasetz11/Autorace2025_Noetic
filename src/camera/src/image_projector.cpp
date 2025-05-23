@@ -127,7 +127,7 @@ int main(int argc, char **argv)
     ImageProjector projector;
 
     // Use a higher rate than the camera to ensure we process all frames
-    ros::Rate rate(30);
+    ros::Rate rate(24);
 
     while (ros::ok())
     {

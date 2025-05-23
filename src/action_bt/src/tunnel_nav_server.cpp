@@ -378,7 +378,7 @@ public:
         else if (mode == "offline")
         {
             // Launch offline SLAM (map server + AMCL + move_base) - run in background with &
-            std::string map_file = "map_file:=$HOME/Documents/Autorace2025_Noetic/src/maps/map4.yaml";
+            std::string map_file = "map_file:=$HOME/Documents/Autorace2025_Noetic/src/maps/map6.yaml";
             std::string cmd = "roslaunch launch_file localization_offline.launch " + map_file + " & echo $! > /tmp/slam_pid";
             int ret = system(cmd.c_str());
 
