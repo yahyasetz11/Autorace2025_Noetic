@@ -10,17 +10,18 @@
             </Sequence>
 
             <Sequence name="Mission 2: Construction">
-                <LaneDetect mode="center" sign="" duration="5.0" speed="0.15"/> 
+                <LaneDetect mode="center" sign="" duration="5.0" speed="0.12"/> 
                 <LaneDetect mode="just-turn-left" duration="60.0" sign="right" speed="0.11"/>  
                 <Construction mode="ramp_2"/> 
             </Sequence>
 
             <Sequence name="Mission 3: Parking">
                 <Move mode="forward" until="timer" distance="2.5"/>
-                <LaneDetect mode="center" duration="1" sign="parking" speed="0.1"/>
+                <LaneDetect mode="center" duration="1" sign="" speed="0.1"/>
                 <LaneDetect mode="just-turn-left" duration="60.0" sign="left" speed="0.12"/>    
                 <Parking mode="dynamic"/>
                 <LaneDetect mode="just-turn-left" duration="10.0" sign="left"/>
+                <LaneDetect mode="center" duration="2" sign="" speed="0.1"/>
             </Sequence>
 
             <Sequence name="Mission 4: Level Crossing">
@@ -35,7 +36,6 @@
                 <Move mode="forward" until="right" distance="0.3"/>
                 <Move mode="forward" until="timer" distance="2"/>
                 <TunnelNav mode="offline"/>
-                <!-- <Rotate direction="align" angle="87.0"/>  -->
                 <Align by="right"/>
                 <Move mode="forward" until="left" distance="0.25"/>
                 <Move mode="forward" until="timer" distance="1.0"/>

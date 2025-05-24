@@ -1023,13 +1023,13 @@ public:
 
                 if (!region_has_left[r])
                 {
-                    region_centers[r] = 380;
+                    region_centers[r] = 160;
                 }
                 else if (!region_has_right[r])
                 {
                     // If right lane detected and we have previous offset,
                     // estimate where left lane should be
-                    region_centers[r] = 700;
+                    region_centers[r] = 300;
                 }
 
                 ROS_INFO("Left %d = %d ", r, left_lane_x);
@@ -1054,13 +1054,13 @@ public:
 
                 if (!region_has_left[r])
                 {
-                    region_centers[r] = 380;
+                    region_centers[r] = 160;
                 }
                 else if (!region_has_right[r])
                 {
                     // If right lane detected and we have previous offset,
                     // estimate where left lane should be
-                    region_centers[r] = 600;
+                    region_centers[r] = 300;
                 }
 
                 ROS_INFO("Cross Level - Left %d = %d ", r, left_lane_x);
@@ -1107,14 +1107,14 @@ public:
                     }
                     else if (region_has_right[r] && recorded_right_lane_x_[r] > 0)
                     {
-                        region_centers[r] = 380;
+                        region_centers[r] = 160;
                     }
                     else
                     {
                         // If right lane detected and we have previous offset,
                         // estimate where left lane should be
 
-                        region_centers[r] = 380;
+                        region_centers[r] = 160;
                     }
                 }
             }
@@ -1160,11 +1160,11 @@ public:
                     {
                         // If right lane detected and we have previous offset,
                         // estimate where left lane should be
-                        region_centers[r] = 600;
+                        region_centers[r] = 300;
                     }
                     else
                     {
-                        region_centers[r] = 600;
+                        region_centers[r] = 300;
                     }
                 }
             }
@@ -1828,8 +1828,9 @@ int main(int argc, char **argv)
 {
     ros::init(argc, argv, "lane_detect_server");
     LaneDetectServer laneDetectServer("lane_detect");
-    ros::MultiThreadedSpinner spinner(4); // atau 2, tergantung CPU
-    spinner.spin();
-    // ros::spin();
+    // ros::AsyncSpinner spinner(4); // atau 2, tergantung CPU
+    // spinner.start();
+    // ros::waitForShutdown();
+    ros::spin();
     return 0;
 }

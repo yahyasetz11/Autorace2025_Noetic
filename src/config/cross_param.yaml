@@ -11,7 +11,7 @@ cross_walking:
 
   # Detection thresholds
   detection_threshold: 600 # Pixel count threshold to consider crossing detected
-  cleared_threshold: 50 # Pixel count threshold to consider crossing cleared
+  cleared_threshold: 10 # Pixel count threshold to consider crossing cleared
 
   # Mode selection
   use_lane_following: false # Set to false to use simple moveForward() instead of lane detection

@@ -89,28 +89,28 @@ public:
 
         // Calculate destination points
         std::vector<cv::Point2f> dst_points = {
-            cv::Point2f(200, 0),
-            cv::Point2f(800, 0),
-            cv::Point2f(800, 600),
-            cv::Point2f(200, 600)};
+            cv::Point2f(100, 0),
+            cv::Point2f(400, 0),
+            cv::Point2f(400, 300),
+            cv::Point2f(100, 300)};
 
         // Calculate homography matrix
         cv::Mat h = cv::findHomography(src_points, dst_points);
 
         // Apply homography transformation
         cv::Mat image_projected;
-        cv::warpPerspective(image_original, image_projected, h, cv::Size(1000, 600));
+        cv::warpPerspective(image_original, image_projected, h, cv::Size(500, 300));
 
         // Fill the empty space with black triangles
         std::vector<cv::Point> triangle1 = {
-            cv::Point(0, 599),
-            cv::Point(0, 340),
-            cv::Point(200, 599)};
+            cv::Point(0, 299),
+            cv::Point(0, 120),
+            cv::Point(100, 299)};
 
         std::vector<cv::Point> triangle2 = {
-            cv::Point(999, 599),
-            cv::Point(999, 340),
-            cv::Point(799, 599)};
+            cv::Point(499, 299),
+            cv::Point(499, 120),
+            cv::Point(399, 299)};
 
         cv::fillPoly(image_projected, std::vector<std::vector<cv::Point>>{triangle1, triangle2}, cv::Scalar(0, 0, 0));
 
