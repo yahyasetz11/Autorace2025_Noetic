@@ -1,11 +1,11 @@
 <root main_tree_to_execute="LaneDetectBT">
     <BehaviorTree ID="LaneDetectBT">
         <Sequence name="BehaviorTree">
-            <!-- <Sequence name="Mission 0: Traffic Light">
+            <Sequence name="Mission 0: Traffic Light">
                 <TrafficLight timeout="60.0"/>
-            </Sequence> -->
+            </Sequence>
             <Sequence name="Mission 1: Intersection">
-                <LaneDetect mode="center" sign="" duration="5.0" speed="0.15"/> 
+                <LaneDetect mode="center" sign="" duration="5.0" speed="0.12"/> 
                 <LaneDetect mode="intersection" duration="300.0" sign="" speed="0.09"/>   
             </Sequence>
 
@@ -25,7 +25,8 @@
             </Sequence>
 
             <Sequence name="Mission 4: Level Crossing">
-                <LaneDetect mode="cross_level" duration="300.0" sign="" speed="0.08"/>
+                <LaneDetect mode="cross_level" duration="30.0" sign="" speed="0.08"/>
+                <LaneDetect mode="cross_level" duration="300.0" sign="" speed="0.1"/>
                 <LaneDetect mode="center" duration="3.0" sign=""/>
                 <LaneDetect mode="just-turn-right" duration="60.0" sign="left" speed="0.10"/>  
                 <LaneDetect mode="just-turn-left" duration="60.0" sign="right" speed="0.1"/>  

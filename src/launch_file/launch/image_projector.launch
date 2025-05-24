@@ -1,5 +1,6 @@
 <launch>
   <!-- Launch the image projector node -->
+  <param name="image_transport" value="compressed" />
   <node pkg="camera" type="image_projector" name="image_projector" output="screen">
     <param name="camera_topic" value="/camera/image" />
     <param name="top_x" value="108" />

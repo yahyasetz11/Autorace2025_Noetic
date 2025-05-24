@@ -34,7 +34,7 @@ public:
         private_nh_.param<std::string>("camera_topic", camera_topic, "/camera/rgb/image_raw");
 
         // Set up subscriber and publisher
-        image_sub_ = it_.subscribe(camera_topic, 1, &ImageProjector::imageCallback, this);
+        image_sub_ = it_.subscribe(camera_topic, 1, &ImageProjector::imageCallback, this, image_transport::TransportHints("compressed"));
         image_pub_ = it_.advertise("/camera/image_projected_compensated", 1);
 
         ROS_INFO("ImageProjector initialized with parameters:");

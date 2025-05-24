@@ -24,7 +24,7 @@
 
 white_lane:
   hue:
-    low: 78
+    low: 53
     high: 179
   saturation:
     low: 0
@@ -39,10 +39,10 @@ yellow_lane:
     low: 0
     high: 78
   saturation:
-    low: 29
+    low: 61
     high: 255
   value:
-    low: 169
+    low: 147
     high: 255
 
 # FOR GAZEBO
