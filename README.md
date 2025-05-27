@@ -5,17 +5,7 @@ A comprehensive ROS-based autonomous racing system for TurtleBot3 robots, featur
 ## 🤖 **Contributor**
 
 **Yahya Setiawan**
-
-## 📋 **Table of Contents**
-
-- [Overview](#overview)
-- [System Architecture](#system-architecture)
-- [Installation](#installation)
-- [Usage](#usage)
-- [Behavior Tree Explanation](#behavior-tree-explanation)
-- [Mission Details](#mission-details)
-- [Configuration](#configuration)
-- [Troubleshooting](#troubleshooting)
+**范元嘉 Fan, Yuan-Chia**
 
 ## 🏁 **Overview**
 
