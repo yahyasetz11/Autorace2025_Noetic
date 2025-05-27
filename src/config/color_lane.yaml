@@ -1,27 +1,3 @@
-# HSV thresholds for white lane
-# white_lane:
-#   hue:
-#     low: 84
-#     high: 179
-#   saturation:
-#     low: 0
-#     high: 66
-#   value:
-#     low: 191
-#     high: 255
-
-# # HSV thresholds for yellow lane
-# yellow_lane:
-#   hue:
-#     low: 10
-#     high: 78
-#   saturation:
-#     low: 0
-#     high: 255
-#   value:
-#     low: 169
-#     high: 255
-
 white_lane:
   hue:
     low: 53
@@ -36,10 +12,10 @@ white_lane:
 # HSV thresholds for yellow lane
 yellow_lane:
   hue:
-    low: 0
+    low: 20
     high: 78
   saturation:
-    low: 61
+    low: 30
     high: 255
   value:
     low: 147

@@ -211,7 +211,7 @@ public:
 
                 turn_precision_threshold_ = construction["turn_precision_threshold"] ? construction["turn_precision_threshold"].as<double>() : 0.1;
 
-                turn_linear_speed_ = construction["turn_linear_speed"] ? construction["turn_linear_speed"].as<double>() : 0.08;
+                turn_linear_speed_ = construction["turn_linear_speed"] ? construction["turn_linear_speed"].as<double>() : 0.12;
 
                 desired_radius_ = construction["desired_radius"] ? construction["desired_radius"].as<double>() : 0.5;
 

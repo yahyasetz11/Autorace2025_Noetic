@@ -52,7 +52,7 @@ public:
 
         // Subscriber
         ROS_INFO("Subscribing to camera topic: %s", camera_topic_.c_str());
-        image_sub_ = it_.subscribe(camera_topic_, 1, &CrosswalkDetectorNode::imageCallback, this);
+        image_sub_ = it_.subscribe(camera_topic_, 1, &CrosswalkDetectorNode::imageCallback, this, image_transport::TransportHints("compressed"));
 
         ROS_INFO("Crosswalk Detector Node Started");
         ROS_INFO("Publishing pixel count to: /crosswalk/pixel_count");

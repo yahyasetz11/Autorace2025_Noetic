@@ -1023,13 +1023,13 @@ public:
 
                 if (!region_has_left[r])
                 {
-                    region_centers[r] = 160;
+                    region_centers[r] = 130;
                 }
                 else if (!region_has_right[r])
                 {
                     // If right lane detected and we have previous offset,
                     // estimate where left lane should be
-                    region_centers[r] = 300;
+                    region_centers[r] = 330;
                 }
 
                 ROS_INFO("Left %d = %d ", r, left_lane_x);
@@ -1054,13 +1054,13 @@ public:
 
                 if (!region_has_left[r])
                 {
-                    region_centers[r] = 160;
+                    region_centers[r] = 130;
                 }
                 else if (!region_has_right[r])
                 {
                     // If right lane detected and we have previous offset,
                     // estimate where left lane should be
-                    region_centers[r] = 300;
+                    region_centers[r] = 330;
                 }
 
                 ROS_INFO("Cross Level - Left %d = %d ", r, left_lane_x);
@@ -1107,14 +1107,14 @@ public:
                     }
                     else if (region_has_right[r] && recorded_right_lane_x_[r] > 0)
                     {
-                        region_centers[r] = 160;
+                        region_centers[r] = 130;
                     }
                     else
                     {
                         // If right lane detected and we have previous offset,
                         // estimate where left lane should be
 
-                        region_centers[r] = 160;
+                        region_centers[r] = 130;
                     }
                 }
             }
@@ -1154,7 +1154,7 @@ public:
                     // Left mode follows left lane with offset
                     if (region_has_right[r])
                     {
-                        region_centers[r] = right_lane_x - x_previous_ + 60;
+                        region_centers[r] = right_lane_x - x_previous_ + 30;
                     }
                     else if (region_has_left[r] && recorded_left_lane_x_[r] < 0)
                     {
@@ -1583,7 +1583,7 @@ public:
 
                     ROS_INFO("Initial turn completed, switching to center mode to find X sign");
                 }
-                else if (intersection_initial_turn_done_ && intersection_x_sign_seen_ && intersection_flag_ >= 1)
+                else if (intersection_initial_turn_done_ || (intersection_x_sign_seen_ && intersection_flag_ >= 1))
                 {
                     // After X sign and retry turn with one flag
                     // Now check for both lanes AND yaw condition
@@ -1592,6 +1592,7 @@ public:
                         double yaw_diff = calculateYawDifference(current_yaw_, intersection_initial_yaw_);
 
                         // Check if we've turned approximately 180 degrees (with tolerance)
+                        ROS_INFO("Intersection condition: yaw diff=%.2f degrees & %.2f", yaw_diff, yaw_tolerance_);
                         if (fabs(yaw_diff - (0.0)) <= yaw_tolerance_)
                         {
                             ROS_INFO("Intersection success: both lanes detected and yaw diff=%.2f degrees", yaw_diff);

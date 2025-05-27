@@ -10,17 +10,17 @@ cross_walking:
   # detection_method: "combined"
 
   # Detection thresholds
-  detection_threshold: 600 # Pixel count threshold to consider crossing detected
+  detection_threshold: 300 # Pixel count threshold to consider crossing detected
   cleared_threshold: 10 # Pixel count threshold to consider crossing cleared
 
   # Mode selection
   use_lane_following: false # Set to false to use simple moveForward() instead of lane detection
 
   # ROI parameters
-  crosswalk_roi_x: 39 # X position of ROI
-  crosswalk_roi_y: 97 # Y position of ROI
-  crosswalk_roi_width: 221 # Width of ROI
-  crosswalk_roi_height: 108 # Height of ROI
+  crosswalk_roi_x: 73 # X position of ROI
+  crosswalk_roi_y: 98 # Y position of ROI
+  crosswalk_roi_width: 129 # Width of ROI
+  crosswalk_roi_height: 91 # Height of ROI
 
   # Color thresholds for red (two ranges because red wraps in HSV)
   hue_red_low1: 0

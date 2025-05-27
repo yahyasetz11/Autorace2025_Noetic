@@ -69,7 +69,7 @@ public:
 
         // Subscribers
         ROS_INFO("Subscribing to camera topic: %s", camera_topic_.c_str());
-        image_sub_ = it_.subscribe(camera_topic_, 1, &TrafficLightServer::imageCallback, this);
+        image_sub_ = it_.subscribe(camera_topic_, 1, &TrafficLightServer::imageCallback, this, image_transport::TransportHints("compressed"));
 
         as_.start();
         ROS_INFO("Traffic Light Action Server Started");

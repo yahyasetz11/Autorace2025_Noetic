@@ -9,7 +9,7 @@ tunnel_navigation:
   goal_poses:
     # - [-1.0, -0.9, -1.57]
     # - [1.5, 2.40, 0.0]
-    - [1.41, 1.51, 1.57]
+    - [1.29, 1.45, 1.57]
     # - [0.1, 0.1, 1.57]
 
   # Map saving parameters
@@ -17,9 +17,9 @@ tunnel_navigation:
 
   # Default goal (used if goal_poses is not defined, for backward compatibility)
   default_goal:
-    x: 1.8
-    y: 1.7
-    yaw: 0.0 # In radians
+    x: 1.41
+    y: 1.77
+    yaw: 1.57 # In radians
 
   finish_area_width: 0.2 # Width of the square area around goal in meters
   finish_area_timeout: 3.0 # Time in seconds robot must stay in finish area to consider goal reached
